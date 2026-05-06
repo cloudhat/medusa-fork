@@ -1,0 +1,232 @@
+// 프로모션·할인 도메인 스키마 (Medusa Promotion Module)
+//
+// 핵심 설계 원칙:
+//   1. Campaign: 기간 한정 할인 묶음(기획전 등). 복수의 Promotion을 소속시킨다.
+//   2. Promotion: 개별 쿠폰·자동 할인 단위. code로 입력하거나 is_automatic=true로 자동 적용.
+//   3. ApplicationMethod: 할인 방식(fixed/percentage)·적용 대상(order/items/shipping)·
+//      분담 방식(each/across)을 정의. 할인 계산의 핵심 설정.
+//   4. PromotionRule: 할인 적용 조건(attribute·operator·values). 적용 가능 상품 범위,
+//      구매 조건, buyget 조건 등을 AND 조건으로 표현한다.
+
+// 프로모션 유형.
+// standard: 일반 할인 쿠폰·자동 할인.
+// buyget: N개 구매 시 M개 무료/할인 제공 방식 (Buy X Get Y).
+enum PromotionType {
+  standard
+  buyget
+}
+
+// 프로모션의 운영 상태.
+// draft: 설정 중, 아직 적용 불가.
+// active: 현재 적용 가능.
+// inactive: 일시 중단.
+// expired: 캠페인 종료 등으로 만료됨.
+enum PromotionStatus {
+  draft
+  active
+  inactive
+  expired
+}
+
+// 할인 금액 계산 방식.
+// fixed: 고정 금액 할인. ApplicationMethod.value가 차감 금액.
+//        currency_code와 함께 사용 (통화별로 다른 고정 금액 설정 가능).
+// percentage: 퍼센트 할인. ApplicationMethod.value가 퍼센트 수치 (예: 10 = 10%).
+enum ApplicationMethodType {
+  fixed
+  percentage
+}
+
+// 할인 적용 대상 범위.
+// order: 주문 전체 금액에 적용.
+// items: PromotionRule로 필터링된 특정 라인 아이템에만 적용.
+// shipping_methods: 배송비에만 적용.
+enum ApplicationMethodTargetType {
+  order
+  items
+  shipping_methods
+}
+
+// items 타입일 때 할인액을 대상 아이템들에 분배하는 방식.
+// each: 조건에 맞는 각 아이템에 동일한 할인을 개별 적용.
+//       예: 10% 쿠폰 + each → 각 아이템 각각 10% 차감.
+// across: 총 할인액을 조건에 맞는 아이템 간에 금액 비례로 분산.
+//         예: 5000원 쿠폰 + across → 아이템 가격 비율로 5000원 배분.
+//         정산·과세 계산 시 아이템별 할인액이 달라지므로 세금 신고액에 영향.
+enum ApplicationMethodAllocation {
+  each
+  across
+}
+
+// PromotionRule의 비교 연산자.
+// in: 값이 지정 목록 안에 포함됨.
+// nin: 값이 지정 목록에 포함되지 않음.
+// eq / ne: 같음 / 다름.
+// gt / gte / lt / lte: 초과 / 이상 / 미만 / 이하 (수치 비교).
+enum PromotionRuleOperator {
+  in
+  eq
+  ne
+  gt
+  gte
+  lt
+  lte
+  nin
+}
+
+// 캠페인 예산의 추적 기준.
+// spend: 할인된 총 금액 기준 (예: 최대 100만원 할인까지만 허용).
+// usage: 쿠폰 사용 횟수 기준 (예: 최대 1000회 사용까지만 허용).
+enum CampaignBudgetType {
+  spend
+  usage
+}
+
+// 기간 한정 할인 묶음 — 기획전·시즌 프로모션·체험단 등.
+//
+// identifier: 외부 시스템 연동용 고유 식별자 (unique 제약). 예: "summer-sale-2026".
+// starts_at / ends_at: 캠페인 유효 기간. null이면 기간 제한 없음.
+//                      만료 여부는 서비스 레이어에서 현재 시각과 비교해 판단.
+// budget: 이 캠페인의 예산 한도 (CampaignBudget). 없으면 무제한.
+// promotions: 이 캠페인에 소속된 Promotion 목록.
+model Campaign {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  identifier  String    @unique
+  starts_at   DateTime?
+  ends_at     DateTime?
+  metadata    Json?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  budget     CampaignBudget?
+  promotions Promotion[]
+}
+
+// 캠페인의 예산 한도 관리.
+//
+// type=spend: 할인 금액 합계를 추적. limit=500000이면 최대 50만원 할인까지.
+// type=usage: 쿠폰 사용 횟수를 추적. limit=1000이면 최대 1000회 사용까지.
+// limit: 예산 상한. null이면 무제한.
+// used: 현재까지 소진된 예산량 (금액 또는 횟수). 쿠폰 사용 시마다 증가.
+// currency_code: spend 타입에서 통화 기준. null이면 통화 무관.
+// Campaign과 1:1 관계 (campaign_id unique 제약).
+model CampaignBudget {
+  id            String             @id @default(cuid())
+  type          CampaignBudgetType
+  limit         Decimal?
+  used          Decimal            @default(0)
+  currency_code String?
+  created_at    DateTime           @default(now())
+  updated_at    DateTime           @updatedAt
+
+  campaign_id String   @unique
+  campaign    Campaign @relation(fields: [campaign_id], references: [id])
+}
+
+// 개별 쿠폰·자동 할인 단위.
+//
+// code: 고객이 장바구니에 입력하는 쿠폰 코드 (unique 제약). is_automatic=true면 입력 불필요.
+// type=standard: 일반 할인.
+// type=buyget: N개 구매 시 M개 무료/할인. buy_rules와 apply_to_quantity를 함께 사용.
+// is_automatic: true면 조건 충족 시 코드 없이 자동 적용 (기획전 할인 등).
+//               false면 code를 명시적으로 입력해야 적용.
+// campaign_id: 소속 캠페인. null이면 독립 쿠폰.
+// application_method: 이 쿠폰의 할인 방식·적용 대상·분담 방식 설정 (1:1).
+// rules: 이 프로모션 자체의 적용 조건 (예: 특정 고객 그룹에게만 허용).
+model Promotion {
+  id           String          @id @default(cuid())
+  code         String          @unique
+  type         PromotionType   @default(standard)
+  is_automatic Boolean         @default(false)
+  status       PromotionStatus @default(draft)
+  metadata     Json?
+  created_at   DateTime        @default(now())
+  updated_at   DateTime        @updatedAt
+
+  campaign_id        String?
+  campaign           Campaign?          @relation(fields: [campaign_id], references: [id])
+  application_method ApplicationMethod?
+  rules              PromotionRule[]
+}
+
+// 할인 적용 방식의 상세 설정 — Promotion과 1:1 관계.
+//
+// type: fixed(고정 금액) / percentage(퍼센트).
+// value: 할인 값. fixed면 금액, percentage면 퍼센트 수치(예: 10 = 10%).
+// currency_code: fixed 타입에서 할인 통화. null이면 주문 통화를 그대로 사용.
+// target_type: 할인 적용 범위 (order / items / shipping_methods).
+// allocation: items 타입일 때 할인액 분담 방식 (each / across).
+//             이 값이 아이템별 세금 과세 금액에 영향을 준다.
+// max_quantity: 할인을 적용할 최대 수량. null이면 수량 제한 없음.
+// apply_to_quantity: buyget 타입에서 무료/할인을 제공할 수량.
+// buy_rules_min_quantity: buyget 타입에서 할인 발동에 필요한 최소 구매 수량.
+// target_rules: 할인 적용 대상을 필터링하는 규칙 (items 타입에서 사용).
+// buy_rules: buyget 구매 조건을 정의하는 규칙.
+model ApplicationMethod {
+  id                     String                       @id @default(cuid())
+  type                   ApplicationMethodType
+  value                  Decimal?
+  currency_code          String?
+  max_quantity           Int?
+  apply_to_quantity      Int?
+  buy_rules_min_quantity Int?
+  target_type            ApplicationMethodTargetType
+  allocation             ApplicationMethodAllocation?
+  created_at             DateTime                     @default(now())
+  updated_at             DateTime                     @updatedAt
+
+  promotion_id String    @unique
+  promotion    Promotion @relation(fields: [promotion_id], references: [id])
+  target_rules PromotionRule[] @relation("TargetRules")
+  buy_rules    PromotionRule[] @relation("BuyRules")
+}
+
+// 프로모션 적용 조건 또는 할인 대상 범위를 정의하는 규칙.
+//
+// attribute: 비교 대상 속성 경로. 예:
+//   - "product_id"            → 특정 상품에만 적용
+//   - "product_type_id"       → 특정 상품 유형에만 적용
+//   - "product_collection_id" → 특정 컬렉션 상품에만 적용
+//   - "customer_group_id"     → 특정 고객 그룹에게만 허용
+//   - "cart.subtotal"         → 장바구니 소계 기준 조건
+// operator: 비교 연산자 (in/eq/ne/gt/gte/lt/lte/nin).
+// values: 비교 기준값 목록 (PromotionRuleValue). in/nin 연산자는 복수값 사용.
+//
+// 사용 위치 3가지:
+//   1. Promotion.rules     → 이 쿠폰의 적용 가능 조건 (예: VIP 고객만 사용 가능)
+//   2. ApplicationMethod.target_rules → 할인을 적용할 아이템 필터 (예: 특정 상품만 할인)
+//   3. ApplicationMethod.buy_rules    → buyget 구매 조건 (예: A상품 2개 이상 구매)
+model PromotionRule {
+  id          String                @id @default(cuid())
+  attribute   String
+  operator    PromotionRuleOperator
+  description String?
+  created_at  DateTime              @default(now())
+  updated_at  DateTime              @updatedAt
+
+  promotion_id                 String?
+  promotion                    Promotion?         @relation(fields: [promotion_id], references: [id])
+  application_method_target_id String?
+  application_method_target    ApplicationMethod? @relation("TargetRules", fields: [application_method_target_id], references: [id])
+  application_method_buy_id    String?
+  application_method_buy       ApplicationMethod? @relation("BuyRules", fields: [application_method_buy_id], references: [id])
+  values                       PromotionRuleValue[]
+}
+
+// PromotionRule의 비교 기준값.
+//
+// 하나의 PromotionRule에 여러 값을 연결해 in/nin 연산을 지원한다.
+// 예: attribute="product_id", operator="in", values=["prod_abc", "prod_xyz"]
+//     → prod_abc 또는 prod_xyz 상품에만 할인 적용.
+// value: 문자열로 저장. 숫자 비교(gt/gte 등)도 문자열로 저장되며 서비스 레이어에서 파싱.
+model PromotionRuleValue {
+  id         String   @id @default(cuid())
+  value      String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  promotion_rule_id String
+  promotion_rule    PromotionRule @relation(fields: [promotion_rule_id], references: [id])
+}

@@ -1,0 +1,328 @@
+// 주문 도메인 스키마 (Medusa Order Module)
+// datasource·generator는 이 파일 하나에만 선언. 같은 디렉토리의 .prisma 파일들이
+// Prisma에 의해 단일 스키마로 합쳐지므로 중복 선언하지 않는다.
+
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+//
+// 핵심 설계 원칙:
+//   1. 이중 레이어 구조 — 주문 확정 시점의 불변 스냅샷(OrderItem.unit_price 등)과
+//      이후 상태 변화(fulfilled_quantity, returned_quantity 등)를 분리해 보관.
+//   2. 버전 관리 — Order.version이 증가할 때마다 OrderItem, OrderSummary,
+//      OrderTransaction이 동기화된다.
+//   3. 합계는 DB 컬럼이 아닌 런타임 계산 — decorateCartTotals()가 계산 후
+//      OrderSummary.raw_original_total JSON에 저장.
+
+// 주문의 라이프사이클 상태.
+// draft → pending → completed / canceled / requires_action 흐름.
+// draft: is_draft_order=true 주문(관리자 생성 초안).
+// requires_action: 추가 조치(결제 재시도 등)가 필요한 상태.
+enum OrderStatus {
+  pending
+  completed
+  canceled
+  requires_action
+  draft
+}
+
+// 주문 변경 요청(OrderChange)의 승인 흐름.
+// pending → requested → confirmed / declined / canceled 단방향 진행.
+// confirmed 전까지는 실제 주문에 반영되지 않는다.
+enum OrderChangeStatus {
+  pending
+  requested
+  confirmed
+  declined
+  canceled
+}
+
+// OrderChange의 변경 유형.
+// return: 반품 요청, exchange: 교환 요청, claim: 클레임(분쟁), edit: 주문 수정.
+enum OrderChangeType {
+  return
+  exchange
+  claim
+  edit
+}
+
+// 반품 처리 단계.
+// requested → received / partially_received → (완료) or canceled.
+// partially_received: 요청 수량 중 일부만 입고된 상태.
+enum ReturnStatus {
+  requested
+  received
+  partially_received
+  canceled
+}
+
+// 클레임(Claim) 유형.
+// refund: 환불로 해결, replace: 재발송으로 해결.
+enum ClaimType {
+  refund
+  replace
+}
+
+// 주문의 최상위 엔티티.
+//
+// version: 주문 변경이 확정될 때마다 증가. OrderItem·OrderSummary·OrderTransaction이
+//          같은 version 값으로 스냅샷된다. 이력 추적과 낙관적 동시성 제어에 활용.
+// display_id: 사람이 읽는 주문번호(자동 증가 정수). 내부 id(cuid)와 분리.
+// is_draft_order: 관리자가 백오피스에서 직접 생성하는 초안 주문 여부.
+// currency_code: ISO 4217 통화 코드 (예: "krw", "usd").
+// metadata: 외부 시스템 연동 등 도메인 외 부가 정보를 저장하는 자유 형식 JSON.
+model Order {
+  id               String      @id @default(cuid())
+  display_id       Int?        @unique
+  region_id        String?
+  customer_id      String?
+  sales_channel_id String?
+  email            String?
+  currency_code    String
+  status           OrderStatus @default(pending)
+  version          Int         @default(1)
+  is_draft_order   Boolean     @default(false)
+  metadata         Json?
+  created_at       DateTime    @default(now())
+  updated_at       DateTime    @updatedAt
+
+  items            OrderItem[]
+  shipping_methods OrderShippingMethod[]
+  shipping_address OrderAddress?         @relation("ShippingAddress")
+  billing_address  OrderAddress?         @relation("BillingAddress")
+  summary          OrderSummary?
+  transactions     OrderTransaction[]
+  changes          OrderChange[]
+  returns          Return[]
+  claims           Claim[]
+  exchanges        Exchange[]
+}
+
+// 주문 라인 아이템 — 주문 당시 상품 정보의 불변 스냅샷.
+//
+// unit_price: 주문 확정 시점의 단가. 이후 상품 가격이 변경되어도 이 값은 변하지 않는다.
+// fulfilled_quantity: 출고 처리된 수량 (0 ~ quantity).
+// returned_quantity: 반품이 완료된 수량. 부분 반품 추적에 사용.
+// variant_id / product_id: 원본 상품 참조. 상품 삭제 후에도 주문 이력은 보존된다.
+// product_title / variant_sku: 주문 시점의 상품명·SKU 스냅샷 (원본 변경에 독립적).
+model OrderItem {
+  id                String   @id @default(cuid())
+  title             String
+  subtitle          String?
+  thumbnail         String?
+  variant_id        String?
+  product_id        String?
+  product_title     String?
+  variant_sku       String?
+  unit_price        Decimal
+  quantity          Int
+  fulfilled_quantity Int     @default(0)
+  returned_quantity  Int     @default(0)
+  metadata          Json?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  order_id String
+  order    Order  @relation(fields: [order_id], references: [id])
+}
+
+// 주문에 적용된 배송 방법과 배송비.
+//
+// amount: 확정된 배송비 금액. 할인 적용 전 금액을 저장하며, 할인 내역은
+//         별도 Adjustment 테이블에 기록한다(Prisma 스키마 상 단순화됨).
+// shipping_option_id: Fulfillment 모듈의 ShippingOption 참조.
+//                     배송 업체·요금 설정과의 연결 고리.
+// data: 배송사에 전달하는 추가 데이터 (배송 업체별 커스텀 필드).
+model OrderShippingMethod {
+  id                 String   @id @default(cuid())
+  name               String
+  amount             Decimal
+  shipping_option_id String?
+  data               Json?
+  metadata           Json?
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  order_id String
+  order    Order  @relation(fields: [order_id], references: [id])
+}
+
+// 배송지 또는 청구지 주소.
+//
+// 한 Order에 배송지(ShippingAddress)와 청구지(BillingAddress) 두 개가 각각 1:1로 연결된다.
+// @relation 이름("ShippingAddress", "BillingAddress")으로 두 관계를 구분.
+// province: 주(State)·도 수준의 행정 구역 코드.
+// country_code: ISO 3166-1 alpha-2 코드 (예: "kr", "us").
+model OrderAddress {
+  id           String   @id @default(cuid())
+  first_name   String?
+  last_name    String?
+  phone        String?
+  company      String?
+  address_1    String?
+  address_2    String?
+  city         String?
+  country_code String?
+  province     String?
+  postal_code  String?
+  metadata     Json?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  shipping_order_id String? @unique
+  shipping_order    Order?  @relation("ShippingAddress", fields: [shipping_order_id], references: [id])
+  billing_order_id  String? @unique
+  billing_order     Order?  @relation("BillingAddress", fields: [billing_order_id], references: [id])
+}
+
+// 주문 금액 합계 — 런타임 계산 결과를 캐싱하는 집계 테이블.
+//
+// 금액 컬럼들은 decorateCartTotals()가 계산한 뒤 기록하는 캐시값이다.
+// raw_original_total: 최초 주문 금액의 상세 내역을 JSON으로 저장
+//                     (item_total, shipping_total, tax_total, discount_total 등 포함).
+// discount_total: 프로모션·쿠폰 할인 합계.
+// tax_total: 세금 합계. 세금 포함(tax-inclusive) 가격인 경우 별도 분리 계산.
+// order와 1:1 관계이므로 order_id가 unique 제약.
+model OrderSummary {
+  id                 String   @id @default(cuid())
+  total              Decimal
+  subtotal           Decimal
+  tax_total          Decimal
+  discount_total     Decimal
+  shipping_total     Decimal
+  raw_original_total Json?
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  order_id String @unique
+  order    Order  @relation(fields: [order_id], references: [id])
+}
+
+// 결제·환불 거래 내역.
+//
+// amount > 0: 결제 (고객이 지불한 금액).
+// amount < 0: 환불 (고객에게 반환한 금액).
+// reference / reference_id: 이 거래가 어떤 Return·Exchange·Claim과 연관되는지 추적.
+//                            예: reference="return", reference_id="ret_xxx".
+// currency_code: 해당 거래의 통화 코드 (주문 통화와 다를 수 있음, 환전 등).
+model OrderTransaction {
+  id            String   @id @default(cuid())
+  amount        Decimal
+  currency_code String
+  reference_id  String?
+  reference     String?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  order_id String
+  order    Order  @relation(fields: [order_id], references: [id])
+}
+
+// 주문 변경 요청 — 반품·교환·클레임·수정 등 주문 후 변경 사항의 승인 흐름을 관리.
+//
+// status: pending → requested → confirmed/declined/canceled 순서로 진행.
+//         confirmed 전까지 실제 주문 데이터에 반영되지 않는다.
+// change_type: 변경의 성격 (return / exchange / claim / edit).
+// requested_by / confirmed_by: 요청자·승인자 식별자 (고객 ID 또는 관리자 ID).
+// actions: 이 변경 요청에 포함된 개별 액션 목록 (OrderChangeAction).
+model OrderChange {
+  id           String            @id @default(cuid())
+  status       OrderChangeStatus @default(pending)
+  change_type  OrderChangeType?
+  requested_by String?
+  confirmed_by String?
+  metadata     Json?
+  created_at   DateTime          @default(now())
+  updated_at   DateTime          @updatedAt
+
+  order_id String
+  order    Order               @relation(fields: [order_id], references: [id])
+  actions  OrderChangeAction[]
+}
+
+// OrderChange 안에 포함된 개별 변경 액션.
+//
+// action: 액션 유형 식별자 (예: "ITEM_ADD", "ITEM_REMOVE", "SHIPPING_ADD").
+//         ChangeActionType enum 값을 문자열로 저장.
+// reference / reference_id: 이 액션이 영향을 미치는 대상 엔티티 참조
+//                            (예: reference="order_item", reference_id="item_xxx").
+// amount: 이 액션으로 인한 금액 변화량 (양수=증가, 음수=감소).
+// 여러 액션이 하나의 OrderChange에 묶여 원자적으로 확정(confirm)된다.
+model OrderChangeAction {
+  id           String   @id @default(cuid())
+  action       String
+  reference    String?
+  reference_id String?
+  amount       Decimal?
+  metadata     Json?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  order_change_id String
+  order_change    OrderChange @relation(fields: [order_change_id], references: [id])
+}
+
+// 반품 요청 엔티티.
+//
+// status: requested → received / partially_received → (완료) or canceled.
+// refund_amount: 이 반품에 대한 환불 예정 금액. null이면 환불 금액 미결정.
+// 부분 반품: 하나의 주문에 여러 Return 레코드를 생성해 지원한다.
+//            각 Return은 반품할 아이템 목록을 별도로 관리.
+// claims / exchanges: 이 반품과 연계된 클레임 또는 교환 요청.
+model Return {
+  id            String       @id @default(cuid())
+  status        ReturnStatus @default(requested)
+  refund_amount Decimal?
+  metadata      Json?
+  created_at    DateTime     @default(now())
+  updated_at    DateTime     @updatedAt
+
+  order_id  String
+  order     Order      @relation(fields: [order_id], references: [id])
+  claims    Claim[]
+  exchanges Exchange[]
+}
+
+// 클레임(분쟁·불량·오배송 등) 처리 엔티티.
+//
+// type=refund: 환불로 해결. refund_amount에 환불 금액을 지정.
+// type=replace: 재발송으로 해결. 새 주문 생성과 연결됨.
+// return_id: 클레임에 반품이 수반될 경우 Return과 연결.
+//            반품 없는 클레임(예: 부분 파손 보상)은 null.
+model Claim {
+  id            String    @id @default(cuid())
+  type          ClaimType
+  refund_amount Decimal?
+  metadata      Json?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  order_id  String
+  order     Order   @relation(fields: [order_id], references: [id])
+  return_id String?
+  return    Return? @relation(fields: [return_id], references: [id])
+}
+
+// 교환(동일·유사 상품으로 대체) 처리 엔티티.
+//
+// difference_due: 교환 상품의 가격 차이. 양수면 고객이 추가 결제,
+//                 음수면 고객에게 차액을 환불한다.
+// return_id: 교환을 위해 반품되는 원래 상품의 Return과 연결.
+//            반품 없는 교환(예: 업그레이드 추가 결제만)은 null.
+model Exchange {
+  id             String   @id @default(cuid())
+  difference_due Decimal?
+  metadata       Json?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  order_id  String
+  order     Order   @relation(fields: [order_id], references: [id])
+  return_id String?
+  return    Return? @relation(fields: [return_id], references: [id])
+}

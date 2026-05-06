@@ -1,0 +1,193 @@
+// 결제 도메인 스키마 (Medusa Payment Module)
+//
+// 핵심 설계 원칙:
+//   1. PaymentCollection이 주문 하나의 전체 결제 컨텍스트를 보유.
+//      여러 Payment와 PaymentSession이 하나의 Collection에 속한다.
+//   2. PaymentSession: 결제 시도(PG사와의 협상 단계). 승인 전 임시 상태.
+//      Payment: 실제 승인된 결제 건. Capture(수집)와 Refund(환불)를 자식으로 갖는다.
+//   3. 부분 환불: 한 Payment에 여러 Refund 레코드를 INSERT하는 방식으로 구현.
+//      PaymentCollection.refunded_amount가 누적 환불액을 집계한다.
+
+// 결제 컬렉션(주문 단위 결제 컨텍스트)의 전체 상태.
+// not_paid → awaiting → authorized → captured(완납) 또는 환불 상태로 진행.
+// partially_captured: 분할 수집 진행 중.
+// partially_refunded: 부분 환불이 완료된 상태.
+enum PaymentCollectionStatus {
+  not_paid
+  awaiting
+  authorized
+  partially_captured
+  captured
+  partially_refunded
+  refunded
+  canceled
+}
+
+// 개별 Payment의 처리 상태.
+// pending → authorized → captured 정상 흐름.
+// requires_more: PG사가 추가 인증(3DS 등)을 요구하는 상태.
+// error: PG사 처리 오류 발생.
+enum PaymentStatus {
+  pending
+  authorized
+  captured
+  partially_captured
+  partially_refunded
+  refunded
+  canceled
+  requires_more
+  error
+}
+
+// PaymentSession의 상태 — PG사와의 협상(세션) 단계를 표현.
+// pending: 세션 생성됨, 아직 고객이 결제 미완료.
+// authorized: 고객이 결제를 완료하고 PG사가 승인함.
+// captured: 금액이 실제로 수집됨(즉시 수집 PG사의 경우 authorized와 동시 발생 가능).
+// requires_more: 추가 인증(3DS, OTP 등) 대기 중.
+// error: PG사 오류.
+// canceled: 세션 만료 또는 고객 취소.
+enum PaymentSessionStatus {
+  pending
+  authorized
+  captured
+  error
+  canceled
+  requires_more
+}
+
+// 주문 하나의 전체 결제 컨텍스트를 묶는 컨테이너.
+//
+// amount: 결제해야 할 전체 금액.
+// authorized_amount: PG사에서 승인된 누적 금액. amount와 일치하면 전액 승인.
+// captured_amount: 실제로 수집(청구)된 누적 금액.
+// refunded_amount: 환불된 누적 금액. 부분 환불을 여러 번 해도 이 필드에 누적된다.
+// completed_at: 결제가 최종 완료된 시각 (captured 상태 전환 시점).
+// payment_sessions: 결제 시도 세션 목록 (복수의 PG사를 동시에 시도 가능).
+// payments: 승인·수집된 실제 결제 건 목록.
+model PaymentCollection {
+  id                String                  @id @default(cuid())
+  currency_code     String
+  amount            Decimal
+  authorized_amount Decimal?
+  captured_amount   Decimal?
+  refunded_amount   Decimal?
+  completed_at      DateTime?
+  status            PaymentCollectionStatus @default(not_paid)
+  metadata          Json?
+  created_at        DateTime                @default(now())
+  updated_at        DateTime                @updatedAt
+
+  payment_sessions PaymentSession[]
+  payments         Payment[]
+}
+
+// 승인된 개별 결제 건.
+//
+// amount: 이 결제 건의 금액.
+// authorized_amount: 이 결제 건에서 승인된 금액 (부분 승인 지원).
+// captured_amount: 이 결제 건에서 실제 수집된 누적 금액.
+// refunded_amount: 이 결제 건에서 환불된 누적 금액.
+// data: PG사가 반환한 원본 응답 데이터 (영수증 ID, 거래 토큰 등). PG사 환불/조회 시 필요.
+// customer_id: 결제한 고객 식별자. 포인트 적립·마케팅 연동에 활용.
+// provider_id: 처리한 PG사(PaymentProvider) 식별자.
+// captures: 이 결제에 대한 수집 내역 (1:N, 분할 수집 지원).
+// refunds: 이 결제에 대한 환불 내역 (1:N, 부분 환불 반복 지원).
+model Payment {
+  id                String        @id @default(cuid())
+  amount            Decimal
+  authorized_amount Decimal?
+  captured_amount   Decimal?
+  refunded_amount   Decimal?
+  currency_code     String
+  customer_id       String?
+  data              Json?
+  status            PaymentStatus @default(pending)
+  metadata          Json?
+  created_at        DateTime      @default(now())
+  updated_at        DateTime      @updatedAt
+
+  payment_collection_id String
+  payment_collection    PaymentCollection @relation(fields: [payment_collection_id], references: [id])
+  provider_id           String
+  provider              PaymentProvider   @relation(fields: [provider_id], references: [id])
+  captures              Capture[]
+  refunds               Refund[]
+}
+
+// PG사와의 결제 협상 세션 — 고객이 결제 수단을 선택하고 인증을 진행하는 임시 상태.
+//
+// data: PG사가 반환한 세션 데이터 (client_secret, redirect_url 등). 프론트엔드가 이 데이터로
+//       PG사 결제 UI를 초기화한다.
+// authorized_at: 고객이 결제를 완료하고 PG사 승인이 떨어진 시각.
+// status=authorized 이후 Payment 레코드가 생성되고 이 세션은 비활성화된다.
+// 복수의 PaymentSession을 동시에 열어 여러 결제 수단을 병렬 제시할 수 있다.
+model PaymentSession {
+  id            String               @id @default(cuid())
+  amount        Decimal
+  currency_code String
+  data          Json?
+  status        PaymentSessionStatus @default(pending)
+  authorized_at DateTime?
+  metadata      Json?
+  created_at    DateTime             @default(now())
+  updated_at    DateTime             @updatedAt
+
+  payment_collection_id String
+  payment_collection    PaymentCollection @relation(fields: [payment_collection_id], references: [id])
+  provider_id           String
+  provider              PaymentProvider   @relation(fields: [provider_id], references: [id])
+}
+
+// 결제 수집(청구) 내역 — Payment에 대한 실제 금액 청구 기록.
+//
+// amount: 이 수집 건에서 청구한 금액 (분할 수집 시 부분 금액일 수 있음).
+// created_by: 수집을 실행한 주체 (관리자 ID 또는 시스템).
+// 하나의 Payment에 여러 Capture를 생성해 분할 수집을 구현한다.
+model Capture {
+  id         String   @id @default(cuid())
+  amount     Decimal
+  created_by String?
+  metadata   Json?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  payment_id String
+  payment    Payment @relation(fields: [payment_id], references: [id])
+}
+
+// 환불 내역 — Payment에 대한 개별 환불 기록.
+//
+// amount: 이 환불 건의 금액. 부분 환불은 별도 Refund 레코드를 INSERT하는 방식으로 지원.
+// refund_reason_id: 환불 사유 코드 참조 (RefundReason 테이블). nullable이면 사유 미지정.
+// note: 환불 처리 메모 (고객 요청 내용, 내부 처리 메모 등).
+// created_by: 환불을 실행한 주체 (관리자 ID 또는 자동화 시스템).
+// PaymentCollection.refunded_amount는 연결된 모든 Refund.amount의 합산값이다.
+model Refund {
+  id               String   @id @default(cuid())
+  amount           Decimal
+  refund_reason_id String?
+  note             String?
+  created_by       String?
+  metadata         Json?
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  payment_id String
+  payment    Payment @relation(fields: [payment_id], references: [id])
+}
+
+// 결제 제공자(PG사) 등록 테이블.
+//
+// id: PG사 플러그인 식별자 (예: "pp_stripe_stripe", "pp_system_default").
+//     Medusa 결제 프로바이더 플러그인이 자동 등록한다.
+// is_enabled: false로 설정하면 이 PG사를 통한 신규 결제 세션 생성이 차단된다.
+//             기존 Payment·Session 레코드는 유지된다.
+model PaymentProvider {
+  id         String   @id
+  is_enabled Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  payments         Payment[]
+  payment_sessions PaymentSession[]
+}
