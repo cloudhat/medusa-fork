@@ -27,14 +27,14 @@ flowchart TD
     E["deleteOrderChangeActionsStep\n(ORDER)\naction 삭제"]
     F["useRemoteQueryStep\nupdatedOrderChange 재조회"]
 
-    G{"남은 RETURN_ITEM action이 없는가?"}
+    G{"RETURN_ITEM action이\n0개 AND SHIPPING_ADD 존재?"}
 
-    subgraph Branch_A["RETURN_ITEM이 0개인 경우"]
+    subgraph Branch_A["RETURN_ITEM=0 AND SHIPPING_ADD 존재"]
         H[["removeReturnShippingMethodWorkflow\n연결된 SHIPPING_ADD action 제거"]]
         I[["updateReturnWorkflow\nlocation_id = null 초기화"]]
     end
 
-    subgraph Branch_B["RETURN_ITEM이 남아있는 경우"]
+    subgraph Branch_B["RETURN_ITEM 남아있거나\nSHIPPING_ADD 없는 경우"]
         J[["refreshReturnShippingWorkflow\n반품 배송비 재계산"]]
     end
 

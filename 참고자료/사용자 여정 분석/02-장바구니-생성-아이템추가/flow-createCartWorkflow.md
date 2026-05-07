@@ -37,12 +37,9 @@ flowchart TD
     F["getVariantsAndItemsWithPrices\n(PRICING, Query)\n변형별 가격 계산"]
     G[["confirmVariantInventoryWorkflow\n(INVENTORY)\n재고 가용성 확인"]]
     H["getTranslatedLineItemsStep\n로케일 맞는 라인 아이템 번역 적용"]
+    V(["validate (hook)\n커스텀 검증 지점"])
     I["createCartsStep\n(CART)\nCart 레코드 생성"]
-
-    subgraph P2["parallelize (after Cart 생성)"]
-        J[["updateTaxLinesWorkflow\n(TAX, CART)\n세금 라인 계산·저장"]]
-    end
-
+    J[["updateTaxLinesWorkflow\n(TAX, CART)\n세금 라인 계산·저장"]]
     K[["updateCartPromotionsWorkflow\n(PROMOTION, CART)\n초기 프로모션 적용"]]
 
     subgraph P3["parallelize"]
@@ -50,10 +47,11 @@ flowchart TD
         M["emitEventStep\ncart.created 이벤트 발행"]
     end
 
+    N(["cartCreated (hook)\n생성된 Cart에 대한 커스텀 액션"])
     End([Cart 생성 완료])
 
     Start --> P1
-    P1 --> D --> E --> F --> G --> H --> I --> P2 --> K --> P3 --> End
+    P1 --> D --> E --> F --> G --> H --> V --> I --> J --> K --> P3 --> N --> End
 ```
 
 ## Step 설명
@@ -68,16 +66,18 @@ flowchart TD
 | 4 | `getVariantsAndItemsWithPrices` | PRICING, Query | 없음 |
 | 5 | `confirmVariantInventoryWorkflow` | INVENTORY | 없음 |
 | 6 | `getTranslatedLineItemsStep` | — | 없음 |
-| 7 | `createCartsStep` | CART | `service.deleteCarts(ids)` |
-| 8 | `updateTaxLinesWorkflow` | TAX, CART | 서브워크플로우 내부 보상 |
-| 9 | `updateCartPromotionsWorkflow` | PROMOTION, CART | 서브워크플로우 내부 보상 |
-| 10a | `refreshPaymentCollectionForCartWorkflow` | PAYMENT | 서브워크플로우 내부 보상 |
-| 10b | `emitEventStep` | EVENT_BUS | 없음 |
+| 7 | `validate` (hook) | — | 없음 |
+| 8 | `createCartsStep` | CART | `service.deleteCarts(ids)` |
+| 9 | `updateTaxLinesWorkflow` | TAX, CART | 서브워크플로우 내부 보상 |
+| 10 | `updateCartPromotionsWorkflow` | PROMOTION, CART | 서브워크플로우 내부 보상 |
+| 11a | `refreshPaymentCollectionForCartWorkflow` | PAYMENT | 서브워크플로우 내부 보상 |
+| 11b | `emitEventStep` | EVENT_BUS | 없음 |
+| 12 | `cartCreated` (hook) | — | 없음 |
 
 ## 보상(Compensation) 흐름
 
 - **`createCartsStep` 실패**: 생성된 Cart ID 목록에 대해 `service.deleteCarts(ids)` 자동 실행.
-- 1~6번 step은 조회·검증만 하므로 별도 보상 없음.
+- 1~7번 step은 조회·검증만 하므로 별도 보상 없음.
 - 서브워크플로우(updateTaxLines, updateCartPromotions, refreshPaymentCollection)는 각각 내부 보상 로직을 가짐.
 
 ## 호출하는 서브워크플로우

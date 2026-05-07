@@ -26,12 +26,12 @@ flowchart TD
     A["useRemoteQueryStep\nReturn 조회"]
     B["useRemoteQueryStep\nOrder 조회"]
     C["useRemoteQueryStep\nOrderChange 조회\n(status: PENDING or REQUESTED)"]
-    D[["fetchShippingOptionForOrderWorkflow\n(FULFILLMENT, PRICING)\n배송 옵션 조회 및 가격 계산\n(return_items context 포함)"]]]
+    D[["fetchShippingOptionForOrderWorkflow\n(FULFILLMENT, PRICING)\n배송 옵션 조회 및 가격 계산\n(return_items context 포함)"]]
     E["getTranslatedShippingOptionsStep\n배송 옵션 로케일 번역"]
     F["createReturnShippingMethodValidationStep\n취소 여부 및 OrderChange 활성 상태 확인"]
     G["createOrderShippingMethods\n(ORDER)\nOrderShippingMethod 생성"]
-    H[["updateOrderTaxLinesWorkflow\n(TAX)\n반품 배송 세금 라인 갱신\n(is_return: true)"]]]
-    I[["createOrderChangeActionsWorkflow\n(ORDER)\nChangeActionType.SHIPPING_ADD action 생성"]]]
+    H[["updateOrderTaxLinesWorkflow\n(TAX)\n반품 배송 세금 라인 갱신\n(is_return: true)"]]
+    I[["createOrderChangeActionsWorkflow\n(ORDER)\nChangeActionType.SHIPPING_ADD action 생성"]]
     J["previewOrderChangeStep\n(ORDER)\n변경 미리보기 반환"]
     End([배송 방법 추가 완료])
 

@@ -10,20 +10,34 @@
 
 ### 관리자 주도 반품
 
+| 메서드      | 경로                                            | 워크플로우                                                                              |
+| -------- | --------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `POST`   | `/admin/returns`                              | [beginReturnOrderWorkflow](./flow-beginReturnOrderWorkflow.md)                     |
+| `POST`   | `/admin/returns/:id`                          | [updateReturnWorkflow](./flow-updateReturnWorkflow.md)                             |
+| `POST`   | `/admin/returns/:id/request-items`            | [requestItemReturnWorkflow](./flow-requestItemReturnWorkflow.md)                   |
+| `POST`   | `/admin/returns/:id/request-items/:action_id` | [updateRequestItemReturnWorkflow](./flow-updateRequestItemReturnWorkflow.md)       |
+| `DELETE` | `/admin/returns/:id/request-items/:action_id` | [removeItemReturnActionWorkflow](./flow-removeItemReturnActionWorkflow.md)         |
+| `POST`   | `/admin/returns/:id/shipping-method`          | [createReturnShippingMethodWorkflow](./flow-createReturnShippingMethodWorkflow.md) |
+| `POST`   | `/admin/returns/:id/request`                  | [confirmReturnRequestWorkflow](./flow-confirmReturnRequestWorkflow.md)             |
+| `POST`   | `/admin/returns/:id/receive`                  | [beginReceiveReturnWorkflow](./flow-beginReceiveReturnWorkflow.md)                 |
+| `POST`   | `/admin/returns/:id/receive-items`            | [receiveItemReturnRequestWorkflow](./flow-receiveItemReturnRequestWorkflow.md)     |
+| `POST`   | `/admin/returns/:id/dismiss-items`            | [dismissItemReturnRequestWorkflow](./flow-dismissItemReturnRequestWorkflow.md)     |
+| `POST`   | `/admin/returns/:id/receive/confirm`          | [confirmReturnReceiveWorkflow](./flow-confirmReturnReceiveWorkflow.md)             |
+| `POST`   | `/admin/payments/:id/refund`                  | [refundPaymentWorkflow](./flow-refundPaymentWorkflow.md)                           |
+
+### 반품 취소 및 단계별 수정
+
 | 메서드 | 경로 | 워크플로우 |
 |--------|------|-----------|
-| `POST` | `/admin/returns` | [beginReturnOrderWorkflow](./flow-beginReturnOrderWorkflow.md) |
-| `POST` | `/admin/returns/:id` | [updateReturnWorkflow](./flow-updateReturnWorkflow.md) |
-| `POST` | `/admin/returns/:id/request-items` | [requestItemReturnWorkflow](./flow-requestItemReturnWorkflow.md) |
-| `POST` | `/admin/returns/:id/request-items/:action_id` | [updateRequestItemReturnWorkflow](./flow-updateRequestItemReturnWorkflow.md) |
-| `DELETE` | `/admin/returns/:id/request-items/:action_id` | [removeItemReturnActionWorkflow](./flow-removeItemReturnActionWorkflow.md) |
-| `POST` | `/admin/returns/:id/shipping-method` | [createReturnShippingMethodWorkflow](./flow-createReturnShippingMethodWorkflow.md) |
-| `POST` | `/admin/returns/:id/request` | [confirmReturnRequestWorkflow](./flow-confirmReturnRequestWorkflow.md) |
-| `POST` | `/admin/returns/:id/receive` | [beginReceiveReturnWorkflow](./flow-beginReceiveReturnWorkflow.md) |
-| `POST` | `/admin/returns/:id/receive-items` | [receiveItemReturnRequestWorkflow](./flow-receiveItemReturnRequestWorkflow.md) |
-| `POST` | `/admin/returns/:id/dismiss-items` | [dismissItemReturnRequestWorkflow](./flow-dismissItemReturnRequestWorkflow.md) |
-| `POST` | `/admin/returns/:id/receive/confirm` | [confirmReturnReceiveWorkflow](./flow-confirmReturnReceiveWorkflow.md) |
-| `POST` | `/admin/payments/:id/refund` | [refundPaymentWorkflow](./flow-refundPaymentWorkflow.md) |
+| `POST` | `/admin/returns/:id/cancel` | `cancelReturnWorkflow` |
+| `DELETE` | `/admin/returns/:id/request` | `cancelReturnRequestWorkflow` |
+| `DELETE` | `/admin/returns/:id/receive` | `cancelReturnReceiveWorkflow` |
+| `POST` | `/admin/returns/:id/shipping-method/:action_id` | `updateReturnShippingMethodWorkflow` |
+| `DELETE` | `/admin/returns/:id/shipping-method/:action_id` | `removeReturnShippingMethodWorkflow` |
+| `POST` | `/admin/returns/:id/receive-items/:action_id` | `updateReceiveItemReturnRequestWorkflow` |
+| `DELETE` | `/admin/returns/:id/receive-items/:action_id` | `removeItemReceiveReturnActionWorkflow` |
+| `POST` | `/admin/returns/:id/dismiss-items/:action_id` | `updateReceiveItemReturnRequestWorkflow` |
+| `DELETE` | `/admin/returns/:id/dismiss-items/:action_id` | `removeItemReturnActionWorkflow` |
 
 ### 고객 직접 반품
 

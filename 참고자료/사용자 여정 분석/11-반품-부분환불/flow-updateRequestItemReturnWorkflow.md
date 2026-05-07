@@ -13,6 +13,7 @@
 |------|------|------|
 | return_id | string | Return ID |
 | action_id | string | 수정할 OrderChangeAction ID |
+| claim_id? | string | 연결된 클레임 ID (OrderChange 조회 필터에 사용) |
 | data.quantity? | number | 변경할 수량 |
 | data.reason_id? | string \| null | 변경할 반품 사유 ID |
 | data.internal_note? | string | 내부 메모 |
