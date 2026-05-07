@@ -10,10 +10,8 @@
 
 | 메서드 | 경로 | 워크플로우 |
 |--------|------|-----------|
-| `POST` | `/store/carts/:id/promotions` | `addPromotionToCartWorkflow` |
-| `DELETE` | `/store/carts/:id/promotions` | `removePromotionsFromCartWorkflow` |
-
-내부적으로 두 워크플로우 모두 `updateCartPromotionsWorkflow`를 action(`ADD` / `REMOVE` / `REPLACE`)으로 호출한다.
+| `POST` | `/store/carts/:id/promotions` | `updateCartPromotionsWorkflow` (`action: ADD`) |
+| `DELETE` | `/store/carts/:id/promotions` | `updateCartPromotionsWorkflow` (`action: REMOVE`) |
 
 ---
 
@@ -33,18 +31,21 @@
 
 | 순번 | Step | 모듈 | 주요 동작 |
 |------|------|------|----------|
-| 1 | `acquireLockStep` | `LOCKING` | cart_id 락 획득 |
+| 1 | (조건) `useQueryGraphStep` | Query | cart 객체가 없을 때 cart_id로 장바구니 조회 |
 | 2 | `validateCartStep` | — | 완료 여부 검증 |
-| 3 | `getPromotionCodesToApply` | Query | 유효한 프로모션 코드 목록 결정 |
-| 4 | `getActionsToComputeFromPromotionsStep` | `PROMOTION` | `promotionService.computeActions()` 호출 → 할인 액션 계산 |
-| 5 | `prepareAdjustmentsFromPromotionActionsStep` | Query | 액션을 create/remove 목록으로 변환 |
-| 6 | `parallelize` | — | 아래 5개 병렬 실행 |
-| 6a | `removeLineItemAdjustmentsStep` | `CART` | 라인 아이템 기존 조정 소프트 삭제 |
-| 6b | `removeShippingMethodAdjustmentsStep` | `CART` | 배송 방법 기존 조정 소프트 삭제 |
-| 6c | `createLineItemAdjustmentsStep` | `CART` | 라인 아이템 신규 조정 생성 |
-| 6d | `createShippingMethodAdjustmentsStep` | `CART` | 배송 방법 신규 조정 생성 |
-| 6e | `updateCartPromotionsStep` | Link | Cart ↔ Promotion Remote Link 갱신 |
-| 7 | `releaseLockStep` | `LOCKING` | 락 해제 |
+| 3 | `acquireLockStep` | `LOCKING` | cart_id 락 획득 |
+| 4 | `validate` (hook) | — | 커스텀 검증 지점 |
+| 5 | `getPromotionCodesToApply` | — | action + 기존 코드 기반으로 적용할 코드 목록 결정 |
+| 6 | `getActionsToComputeFromPromotionsStep` | `PROMOTION` | `promotionService.computeActions()` 호출 → 할인 액션 계산 |
+| 7 | `prepareAdjustmentsFromPromotionActionsStep` | — | 액션을 create/remove 목록으로 변환 |
+| 8 | `parallelize` | — | 아래 5개 병렬 실행 |
+| 8a | `removeLineItemAdjustmentsStep` | `CART` | 라인 아이템 기존 조정 소프트 삭제 |
+| 8b | `removeShippingMethodAdjustmentsStep` | `CART` | 배송 방법 기존 조정 소프트 삭제 |
+| 8c | `createLineItemAdjustmentsStep` | `CART` | 라인 아이템 신규 조정 생성 |
+| 8d | `createShippingMethodAdjustmentsStep` | `CART` | 배송 방법 신규 조정 생성 |
+| 8e | `updateCartPromotionsStep` | Link | Cart ↔ Promotion Remote Link 갱신 |
+| 9 | (조건) `refreshPaymentCollectionForCartWorkflow` | `PAYMENT` | `force_refresh_payment_collection=true`일 때 결제 컬렉션 갱신 |
+| 10 | `releaseLockStep` | `LOCKING` | 락 해제 |
 
 ---
 

@@ -12,9 +12,10 @@
 |--------|------|-----------|
 | `POST` | `/store/customers` | `createCustomerWorkflow` |
 | `POST` | `/auth/customer/emailpass` | 인증 (Auth 모듈) |
-| `GET` / `POST` | `/store/carts/:id` | `updateCartWorkflow` |
+| `GET` | `/store/carts/:id` | 없음 (Query 직접 조회) |
+| `POST` | `/store/carts/:id` | `updateCartWorkflow` |
 
-주소 입력과 고객 연결은 모두 `updateCartWorkflow`를 통해 처리된다.
+주소 입력과 고객 연결은 모두 `POST /store/carts/:id` → `updateCartWorkflow`를 통해 처리된다.
 
 ---
 
@@ -49,10 +50,13 @@
 | 4b | `findOrCreateCustomerStep` | `CUSTOMER` | 고객 조회 또는 신규 생성 |
 | 5 | `validateSalesChannelStep` | — | 채널 유효성 검증 |
 | 6 | (조건) `useQueryGraphStep` | Query | region_id 변경 시 새 리전 조회 |
-| 7 | `updateCartsStep` | `CART` | Cart 필드 + Address 업데이트 |
-| 8 | (조건) `deleteLineItemsStep` | `CART` | 리전 변경 시 커스텀 가격 아이템 삭제 |
-| 9 | `refreshCartItemsWorkflow` | 여러 모듈 | 세금·프로모션·결제 컬렉션 재계산 |
-| 10 | `releaseLockStep` | `LOCKING` | 락 해제 |
+| 7 | `validate` (hook) | — | 커스텀 검증 지점 |
+| 8 | (조건) `emitEventStep` | `EVENT_BUS` | region_id 변경 시 `cart.region_updated` 이벤트 |
+| 9 | `parallelize` | `CART`, `EVENT_BUS` | `updateCartsStep` + `emitEventStep(cart.updated)` 병렬 실행 |
+| 10 | (조건) `deleteLineItemsStep` | `CART` | 리전 변경 시 커스텀 가격 아이템 삭제 |
+| 11 | `refreshCartItemsWorkflow` | 여러 모듈 | 세금·프로모션·결제 컬렉션 재계산 |
+| 12 | `cartUpdated` (hook) | — | 장바구니 갱신 후 커스터마이징 지점 |
+| 13 | `releaseLockStep` | `LOCKING` | 락 해제 |
 
 ### 주소 처리 규칙
 

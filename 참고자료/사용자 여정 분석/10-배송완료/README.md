@@ -10,7 +10,7 @@
 
 | 메서드 | 경로 | 워크플로우 |
 |--------|------|-----------|
-| `POST` | `/admin/orders/:id/fulfillments/:fulfillment_id/delivered` | `markOrderFulfillmentAsDeliveredWorkflow` |
+| `POST` | `/admin/orders/:id/fulfillments/:fulfillment_id/mark-as-delivered` | `markOrderFulfillmentAsDeliveredWorkflow` |
 
 ---
 

@@ -1,0 +1,13 @@
+{
+  "pathWrapping": "backticks",
+  "showNotifications": true,
+  "menuDisplay": "linux-mac",
+  "showAbsolutePath": true,
+  "showFileUrl": false,
+  "showObsidianUrl": false,
+  "showMarkdownLink": false,
+  "markdownLinkFormat": "wiki-style",
+  "showFilename": false,
+  "showFilenameWithExt": false,
+  "filenameUseWrapping": false
+}

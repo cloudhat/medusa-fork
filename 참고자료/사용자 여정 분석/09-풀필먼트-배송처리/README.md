@@ -12,7 +12,7 @@
 |--------|------|-----------|
 | `POST` | `/admin/orders/:id/fulfillments` | `createOrderFulfillmentWorkflow` |
 | `POST` | `/admin/orders/:id/fulfillments/:fulfillment_id/cancel` | `cancelOrderFulfillmentWorkflow` |
-| `POST` | `/admin/orders/:id/shipment` | `createOrderShipmentWorkflow` |
+| `POST` | `/admin/orders/:id/fulfillments/:fulfillment_id/shipments` | `createOrderShipmentWorkflow` |
 
 ---
 
@@ -36,6 +36,7 @@
 | 9 | `updateReservationsStep` | `INVENTORY` | 잔여 예약 수량 업데이트 |
 | 10 | `deleteReservationsStep` | `INVENTORY` | 소진된 예약 소프트 삭제 |
 | 11 | `emitEventStep` | `EVENT_BUS` | `order.fulfillment_created` 이벤트 |
+| 12 | `fulfillmentCreated` (hook) | — | 풀필먼트 생성 후 커스터마이징 지점 |
 
 **재고 차감 시점**: Step 6 (`adjustInventoryLevelsStep`) — `parallelize` 블록 **이전**에 단독 실행된다.
 

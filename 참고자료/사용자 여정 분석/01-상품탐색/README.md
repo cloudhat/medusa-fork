@@ -8,14 +8,14 @@
 
 ## API 엔드포인트
 
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| `GET` | `/store/products` | 상품 목록 조회 |
-| `GET` | `/store/products/:handle` | 상품 상세 조회 |
-| `GET` | `/store/products/:id/variants` | 상품 옵션(변형) 목록 |
-| `GET` | `/store/shipping-options` | 배송 가능 지역·옵션 사전 조회 |
+| 메서드 | 경로 | 설명 | 워크플로우 |
+|--------|------|------|-----------|
+| `GET` | `/store/products` | 상품 목록 조회 | 없음 (Query 직접 조회) |
+| `GET` | `/store/products/:id` | 상품 상세 조회 | 없음 (Query 직접 조회) |
+| `GET` | `/store/shipping-options` | 배송 가능 지역·옵션 사전 조회 | `listShippingOptionsForCartWorkflow` |
 
-이 단계의 API는 워크플로우 없이 **Query Graph 직접 조회**로 응답을 구성한다.
+`/store/products` 계열은 워크플로우 없이 **Query Graph 직접 조회**로 응답을 구성한다.
+`/store/shipping-options`는 `cart_id`를 받아 `listShippingOptionsForCartWorkflow`를 호출하므로 04단계와 동일한 흐름을 공유한다.
 
 ---
 

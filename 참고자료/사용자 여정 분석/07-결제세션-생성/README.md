@@ -10,10 +10,8 @@
 
 | 메서드 | 경로 | 워크플로우 |
 |--------|------|-----------|
-| `POST` | `/store/carts/:id/payment-collection` | `createPaymentCollectionForCartWorkflow` |
-| `GET` | `/store/carts/:id/payment-collection` | (Query 직접 조회) |
+| `POST` | `/store/payment-collections` | `createPaymentCollectionForCartWorkflow` |
 | `POST` | `/store/payment-collections/:id/payment-sessions` | `createPaymentSessionsWorkflow` |
-| `DELETE` | `/store/payment-collections/:id/payment-sessions/:session_id` | `deletePaymentSessionsWorkflow` |
 
 ---
 

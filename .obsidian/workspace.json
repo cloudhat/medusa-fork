@@ -13,7 +13,7 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "참고자료/사용자 여정 분석/05-프로모션-적용/README.md",
+                "file": "참고자료/사용자 여정 분석/01-상품탐색/README.md",
                 "mode": "source",
                 "source": false
               },
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "참고자료/사용자 여정 분석/05-프로모션-적용/README.md",
+                "file": "참고자료/사용자 여정 분석/01-상품탐색/README.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -113,7 +113,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "참고자료/사용자 여정 분석/05-프로모션-적용/README.md",
+                "file": "참고자료/사용자 여정 분석/01-상품탐색/README.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
@@ -156,7 +156,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "참고자료/사용자 여정 분석/05-프로모션-적용/README.md",
+                "file": "참고자료/사용자 여정 분석/01-상품탐색/README.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -183,8 +183,9 @@
       "bases:새 베이스 생성하기": false
     }
   },
-  "active": "0f48595f16fe52ed",
+  "active": "502ffa97c8f3f6ea",
   "lastOpenFiles": [
+    "참고자료/사용자 여정 분석/05-프로모션-적용/README.md",
     "참고자료/사용자 여정 분석/11-반품-부분환불/README.md",
     "참고자료/사용자 여정 분석/10-배송완료/README.md",
     "참고자료/사용자 여정 분석/09-풀필먼트-배송처리/README.md",
@@ -192,7 +193,6 @@
     "참고자료/사용자 여정 분석/07-결제세션-생성/README.md",
     "참고자료/사용자 여정 분석/01-상품탐색/README.md",
     "참고자료/사용자 여정 분석/06-세금계산/README.md",
-    "참고자료/사용자 여정 분석/05-프로모션-적용/README.md",
     "참고자료/사용자 여정 분석/04-배송옵션-선택/README.md",
     "참고자료/사용자 여정 분석/03-고객식별-주소입력/README.md",
     "참고자료/사용자 여정 분석/02-장바구니-생성-아이템추가/README.md",

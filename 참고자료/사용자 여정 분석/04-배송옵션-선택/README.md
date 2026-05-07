@@ -49,15 +49,16 @@
 | 1 | `acquireLockStep` | `LOCKING` | cart_id 락 획득 |
 | 2 | `useRemoteQueryStep` | Remote Query | 장바구니 조회 |
 | 3 | `validateCartStep` | — | 완료 여부 검증 |
-| 4 | `listShippingOptionsForCartWithPricingWorkflow` | `FULFILLMENT`, `PRICING` | 선택 옵션의 가격 계산된 배송 옵션 목록 조회 |
-| 5 | `validateCartShippingOptionsStep` | `FULFILLMENT` | 옵션 유효성 검증 |
-| 6 | `validateCartShippingOptionsPriceStep` | — | 가격 존재 여부 검증 |
-| 7 | `validateAndReturnShippingMethodsDataStep` | `FULFILLMENT` | 배송 프로바이더 측 data 검증 |
-| 8 | `parallelize` | — | 아래 2개 병렬 실행 |
-| 8a | `removeShippingMethodFromCartStep` | `CART` | 기존 배송 방법 소프트 삭제 |
-| 8b | `addShippingMethodToCartStep` | `CART` | 새 배송 방법 추가 |
-| 9 | `refreshCartItemsWorkflow` | 여러 모듈 | 세금·프로모션·결제 컬렉션 재계산 |
-| 10 | `emitEventStep` + `releaseLockStep` | — | 이벤트 발행·락 해제 |
+| 4 | `validate` (hook) | — | 커스텀 검증 지점 |
+| 5 | `listShippingOptionsForCartWithPricingWorkflow` | `FULFILLMENT`, `PRICING` | 선택 옵션의 가격 계산된 배송 옵션 목록 조회 |
+| 6 | `validateCartShippingOptionsStep` | `FULFILLMENT` | 옵션 유효성 검증 |
+| 7 | `validateCartShippingOptionsPriceStep` | — | 가격 존재 여부 검증 |
+| 8 | `validateAndReturnShippingMethodsDataStep` | `FULFILLMENT` | 배송 프로바이더 측 data 검증 |
+| 9 | `parallelize` | — | 아래 2개 병렬 실행 |
+| 9a | `removeShippingMethodFromCartStep` | `CART` | 기존 배송 방법 소프트 삭제 |
+| 9b | `addShippingMethodToCartStep` | `CART` | 새 배송 방법 추가 |
+| 10 | `refreshCartItemsWorkflow` | 여러 모듈 | 세금·프로모션·결제 컬렉션 재계산 |
+| 11 | `parallelize` | `EVENT_BUS`, `LOCKING` | `emitEventStep` + `releaseLockStep` 병렬 실행 |
 
 **주의**: 기존 배송 방법은 새 배송 방법 추가 시 소프트 삭제된다 (분할 배송 미지원).
 

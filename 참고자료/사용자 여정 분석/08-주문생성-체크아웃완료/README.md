@@ -25,22 +25,27 @@ API 핸들러가 `Modules.WORKFLOW_ENGINE`을 통해 워크플로우를 실행�
 | 순번 | Step | 모듈 | 주요 동작 |
 |------|------|------|----------|
 | 1 | `acquireLockStep` | `LOCKING` | cart_id 락 (timeout 30초, TTL 2분) |
+| 2 | `parallelize` | — | 아래 2개 병렬 실행 |
 | 2a | `useQueryGraphStep` (order_cart) | Query | 기존 order 존재 여부 확인 (멱등성 체크) |
 | 2b | `useQueryGraphStep` (cart) | Query | 장바구니 전체 조회 (inventory level, payment_collection 포함) |
 | 3 | `validateCartPaymentsStep` | — | PENDING/REQUIRES_MORE/AUTHORIZED/CAPTURED 상태 세션 필터링 |
 | 4 | `compensatePaymentIfNeededStep` | — | 실행 시엔 아무것도 안 함. 실패 보상 시 결제 환불 트리거 |
-| 5 | `useQueryGraphStep` (shipping_option) | Query | shipping_profile_id 조회 |
-| 6 | `validateShippingStep` | — | 아이템 배송 프로파일 ↔ 배송 방법 매핑 검증 |
-| 7 | `createOrdersStep` | `ORDER` | Order 레코드 생성 (`status: PENDING`) |
-| **8~12** | **`parallelize`** | — | **아래 5개 동시 실행** |
-| 8 | `createRemoteLinkStep` | Link | ORDER↔CART, ORDER↔PROMOTION, ORDER↔PAYMENT 링크 생성 |
-| 9 | `updateCartsStep` | `CART` | `cart.completed_at = now` 설정 |
-| 10 | `reserveInventoryStep` | `INVENTORY`, `LOCKING` | 재고 예약 레코드 생성 (inventory lock 하에서) |
-| 11 | `registerUsageStep` | `PROMOTION` | 프로모션 사용 횟수·예산 차감 |
-| 12 | `emitEventStep` | `EVENT_BUS` | `order.placed` 이벤트 발행 (워크플로우 완료 후 실제 발행) |
-| 13 | `authorizePaymentSessionStep` | `PAYMENT` | 결제 세션 승인 (첫 번째 세션만 처리) |
-| 14 | `addOrderTransactionStep` | `ORDER` | Capture를 OrderTransaction으로 기록 |
-| 15 | `releaseLockStep` | `LOCKING` | cart_id 락 해제 |
+| 5 | `validate` (hook) | — | 커스텀 검증 지점 |
+| — | **`when("create-order")` — 최초 완료 시에만 아래 실행** | — | orderId가 없을 때만 진입 |
+| 6 | `useQueryGraphStep` (shipping_option) | Query | shipping_profile_id 조회 |
+| 7 | `validateShippingStep` | — | 아이템 배송 프로파일 ↔ 배송 방법 매핑 검증 |
+| 8 | `createOrdersStep` | `ORDER` | Order 레코드 생성 (`status: PENDING`) |
+| **9~13** | **`parallelize`** | — | **아래 5개 동시 실행** |
+| 9 | `createRemoteLinkStep` | Link | ORDER↔CART, ORDER↔PROMOTION, ORDER↔PAYMENT 링크 생성 |
+| 10 | `updateCartsStep` | `CART` | `cart.completed_at = now` 설정 |
+| 11 | `reserveInventoryStep` | `INVENTORY`, `LOCKING` | 재고 예약 레코드 생성 (inventory lock 하에서) |
+| 12 | `registerUsageStep` | `PROMOTION` | 프로모션 사용 횟수·예산 차감 |
+| 13 | `emitEventStep` | `EVENT_BUS` | `order.placed` 이벤트 발행 |
+| 14 | `beforePaymentAuthorization` (hook) | — | 결제 인증 직전 커스터마이징 지점 |
+| 15 | `authorizePaymentSessionStep` | `PAYMENT` | 결제 세션 승인 (첫 번째 세션만 처리) |
+| 16 | `addOrderTransactionStep` | `ORDER` | Capture를 OrderTransaction으로 기록 |
+| 17 | `orderCreated` (hook) | — | 주문 생성 후 커스터마이징 지점 |
+| 18 | `releaseLockStep` | `LOCKING` | cart_id 락 해제 |
 
 ---
 

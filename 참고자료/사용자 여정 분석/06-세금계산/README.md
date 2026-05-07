@@ -28,12 +28,13 @@
 
 | 순번 | Step | 모듈 | 주요 동작 |
 |------|------|------|----------|
-| 1 | `acquireLockStep` | `LOCKING` | cart_id 락 |
+| 1 | (조건) `useQueryGraphStep` | Query | cart 객체가 없을 때 cart_id로 장바구니 조회 |
 | 2 | `validateCartStep` | — | 완료 여부 검증 |
-| 3 | `getItemTaxLinesStep` | `TAX` | 세금 라인 계산 |
-| 4 | `getTranslatedTaxLinesStep` | — | locale 번역 |
-| 5 | `setTaxLinesForItemsStep` | `CART` | 기존 세금 라인 전체 교체 (`setLineItemTaxLines`, `setShippingMethodTaxLines`) |
-| 6 | `releaseLockStep` | `LOCKING` | 락 해제 |
+| 3 | `acquireLockStep` | `LOCKING` | cart_id 락 (validateCartStep 이후에 획득) |
+| 4 | `getItemTaxLinesStep` | `TAX` | 세금 라인 계산 |
+| 5 | `getTranslatedTaxLinesStep` | — | locale 번역 |
+| 6 | `setTaxLinesForItemsStep` | `CART` | 기존 세금 라인 전체 교체 (`setLineItemTaxLines`, `setShippingMethodTaxLines`) |
+| 7 | `releaseLockStep` | `LOCKING` | 락 해제 |
 
 ---
 

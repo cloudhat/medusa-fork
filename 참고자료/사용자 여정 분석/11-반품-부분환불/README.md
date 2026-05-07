@@ -6,6 +6,19 @@
 
 ---
 
+## API 엔드포인트
+
+| 메서드 | 경로 | 워크플로우 |
+|--------|------|-----------|
+| `POST` | `/admin/returns` | `beginReturnOrderWorkflow` |
+| `POST` | `/admin/returns/:id/request-items` | `requestItemReturnWorkflow` |
+| `POST` | `/admin/returns/:id/request` | `confirmReturnRequestWorkflow` |
+| `POST` | `/admin/returns/:id/receive/confirm` | `confirmReturnReceiveWorkflow` |
+| `POST` | `/admin/payments/:id/refund` | `refundPaymentWorkflow` |
+| `POST` | `/store/returns` | `createAndCompleteReturnOrderWorkflow` |
+
+---
+
 ## 반품 흐름 유형
 
 | 유형 | 설명 | 진입 워크플로우 |
