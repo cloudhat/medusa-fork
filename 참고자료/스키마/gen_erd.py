@@ -37,13 +37,42 @@ ENTITIES = [
         ("is_draft_order",  "Boolean",     ""),
     ]),
     ("OrderItem", "order", [
-        ("id",                  "String",  "pk"),
-        ("order_id",            "String",  "fk"),
-        ("variant_id",          "String?", ""),
-        ("unit_price",          "Decimal", ""),
-        ("quantity",            "Int",     ""),
-        ("fulfilled_quantity",  "Int",     ""),
-        ("returned_quantity",   "Int",     ""),
+        ("id",                        "String",  "pk"),
+        ("order_id",                  "String",  "fk"),
+        ("item_id",                   "String",  "fk"),
+        ("version",                   "Int",     ""),
+        ("quantity",                  "Decimal", ""),
+        ("fulfilled_quantity",        "Decimal", ""),
+        ("shipped_quantity",          "Decimal", ""),
+        ("return_requested_quantity", "Decimal", ""),
+        ("return_received_quantity",  "Decimal", ""),
+        ("written_off_quantity",      "Decimal", ""),
+    ]),
+    ("OrderLineItem", "order", [
+        ("id",               "String",  "pk"),
+        ("title",            "String",  ""),
+        ("variant_id",       "String?", ""),
+        ("product_id",       "String?", ""),
+        ("variant_sku",      "String?", ""),
+        ("unit_price",       "Decimal?",""),
+        ("is_discountable",  "Boolean", ""),
+        ("is_tax_inclusive", "Boolean", ""),
+        ("requires_shipping","Boolean", ""),
+        ("is_giftcard",      "Boolean", ""),
+    ]),
+    ("OrderLineItemAdjustment", "order", [
+        ("id",           "String",  "pk"),
+        ("item_id",      "String",  "fk"),
+        ("promotion_id", "String?", ""),
+        ("code",         "String?", ""),
+        ("amount",       "Decimal", ""),
+    ]),
+    ("OrderLineItemTaxLine", "order", [
+        ("id",          "String",  "pk"),
+        ("item_id",     "String",  "fk"),
+        ("code",        "String",  ""),
+        ("rate",        "Decimal", ""),
+        ("tax_rate_id", "String?", ""),
     ]),
     ("OrderShippingMethod", "order", [
         ("id",                 "String",  "pk"),
@@ -51,6 +80,22 @@ ENTITIES = [
         ("shipping_option_id", "String?", ""),
         ("name",               "String",  ""),
         ("amount",             "Decimal", ""),
+        ("is_tax_inclusive",   "Boolean", ""),
+        ("is_custom_amount",   "Boolean", ""),
+    ]),
+    ("OrderShippingMethodAdjustment", "order", [
+        ("id",                 "String",  "pk"),
+        ("shipping_method_id", "String",  "fk"),
+        ("promotion_id",       "String?", ""),
+        ("code",               "String?", ""),
+        ("amount",             "Decimal", ""),
+    ]),
+    ("OrderShippingMethodTaxLine", "order", [
+        ("id",                 "String",  "pk"),
+        ("shipping_method_id", "String",  "fk"),
+        ("code",               "String",  ""),
+        ("rate",               "Decimal", ""),
+        ("tax_rate_id",        "String?", ""),
     ]),
     ("OrderAddress", "order", [
         ("id",                "String",  "pk"),
@@ -77,6 +122,14 @@ ENTITIES = [
         ("currency_code", "String",  ""),
         ("reference_id",  "String?", ""),
     ]),
+    ("OrderCreditLine", "order", [
+        ("id",           "String",  "pk"),
+        ("order_id",     "String",  "fk"),
+        ("version",      "Int",     ""),
+        ("reference",    "String?", ""),
+        ("reference_id", "String?", ""),
+        ("amount",       "Decimal", ""),
+    ]),
     ("OrderChange", "order", [
         ("id",           "String",           "pk"),
         ("order_id",     "String",           "fk"),
@@ -97,6 +150,21 @@ ENTITIES = [
         ("status",        "ReturnStatus",""),
         ("refund_amount", "Decimal?",    ""),
     ]),
+    ("ReturnItem", "order", [
+        ("id",                "String",  "pk"),
+        ("return_id",         "String",  "fk"),
+        ("item_id",           "String",  "fk"),
+        ("reason_id",         "String?", "fk"),
+        ("quantity",          "Decimal", ""),
+        ("received_quantity", "Decimal", ""),
+        ("damaged_quantity",  "Decimal", ""),
+    ]),
+    ("ReturnReason", "order", [
+        ("id",                      "String",  "pk"),
+        ("value",                   "String",  ""),
+        ("label",                   "String",  ""),
+        ("parent_return_reason_id", "String?", "fk"),
+    ]),
     ("Claim", "order", [
         ("id",            "String",    "pk"),
         ("order_id",      "String",    "fk"),
@@ -104,11 +172,30 @@ ENTITIES = [
         ("type",          "ClaimType", ""),
         ("refund_amount", "Decimal?",  ""),
     ]),
+    ("OrderClaimItem", "order", [
+        ("id",                 "String",  "pk"),
+        ("claim_id",           "String",  "fk"),
+        ("item_id",            "String",  "fk"),
+        ("reason",             "String?", ""),
+        ("quantity",           "Decimal", ""),
+        ("is_additional_item", "Boolean", ""),
+    ]),
+    ("OrderClaimItemImage", "order", [
+        ("id",            "String", "pk"),
+        ("claim_item_id", "String", "fk"),
+        ("url",           "String", ""),
+    ]),
     ("Exchange", "order", [
         ("id",             "String",  "pk"),
         ("order_id",       "String",  "fk"),
         ("return_id",      "String?", "fk"),
         ("difference_due", "Decimal?",""),
+    ]),
+    ("OrderExchangeItem", "order", [
+        ("id",          "String",  "pk"),
+        ("exchange_id", "String",  "fk"),
+        ("item_id",     "String",  "fk"),
+        ("quantity",    "Decimal", ""),
     ]),
     # 결제
     ("PaymentCollection", "pay", [
@@ -267,19 +354,42 @@ ENTITIES = [
 # (parent, child, parent_card, child_card, edge_label)
 # card: "1" = exactly one  |  "0..1" = zero or one  |  "N" = one or more  |  "0..N" = zero or more
 RELS = [
-    # 주문
+    # 주문 — Order 직속
     ("Order", "OrderItem",           "1",    "0..N", ""),
     ("Order", "OrderShippingMethod", "1",    "0..N", ""),
     ("Order", "OrderSummary",        "1",    "1",    ""),
     ("Order", "OrderTransaction",    "1",    "0..N", ""),
+    ("Order", "OrderCreditLine",     "1",    "0..N", ""),
     ("Order", "OrderChange",         "1",    "0..N", ""),
     ("Order", "OrderAddress",        "1",    "0..N", "shipping/billing"),
     ("Order", "Return",              "1",    "0..N", ""),
     ("Order", "Claim",               "1",    "0..N", ""),
     ("Order", "Exchange",            "1",    "0..N", ""),
-    ("OrderChange", "OrderChangeAction", "1", "0..N", ""),
-    ("Return", "Claim",              "0..1", "0..N", ""),
-    ("Return", "Exchange",           "0..1", "0..N", ""),
+    # OrderItem ↔ OrderLineItem (이중 레이어)
+    ("OrderItem",           "OrderLineItem",              "1",    "1",    "snapshot"),
+    # LineItem 하위
+    ("OrderLineItem",       "OrderLineItemAdjustment",    "1",    "0..N", ""),
+    ("OrderLineItem",       "OrderLineItemTaxLine",       "1",    "0..N", ""),
+    # ShippingMethod 하위
+    ("OrderShippingMethod", "OrderShippingMethodAdjustment", "1", "0..N", ""),
+    ("OrderShippingMethod", "OrderShippingMethodTaxLine", "1",    "0..N", ""),
+    # OrderChange
+    ("OrderChange",         "OrderChangeAction",          "1",    "0..N", ""),
+    # Return 계열
+    ("Return",              "ReturnItem",                 "1",    "0..N", ""),
+    ("ReturnReason",        "ReturnItem",                 "0..1", "0..N", ""),
+    ("ReturnReason",        "ReturnReason",               "0..1", "0..N", "sub-reason"),
+    ("Return",              "Claim",                      "0..1", "0..N", ""),
+    ("Return",              "Exchange",                   "0..1", "0..N", ""),
+    # Claim 계열
+    ("Claim",               "OrderClaimItem",             "1",    "0..N", ""),
+    ("OrderClaimItem",      "OrderClaimItemImage",        "1",    "0..N", ""),
+    # Exchange 계열
+    ("Exchange",            "OrderExchangeItem",          "1",    "0..N", ""),
+    # LineItem → Return/Claim/Exchange 아이템 참조
+    ("OrderLineItem",       "ReturnItem",                 "1",    "0..N", ""),
+    ("OrderLineItem",       "OrderClaimItem",             "1",    "0..N", ""),
+    ("OrderLineItem",       "OrderExchangeItem",          "1",    "0..N", ""),
     # 결제
     ("PaymentCollection", "PaymentSession", "1",    "0..N", ""),
     ("PaymentCollection", "Payment",        "1",    "0..N", ""),
