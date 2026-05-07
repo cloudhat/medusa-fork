@@ -53,14 +53,14 @@ API 핸들러가 `Modules.WORKFLOW_ENGINE`을 통해 워크플로우를 실행�
 
 `createOrdersStep` 이전에 `transform`으로 cart 데이터를 order 구조로 변환한다.
 
-| Cart 데이터 | Order 데이터 |
-|------------|-------------|
-| `LineItem` | `OrderLineItem` (상품 스냅샷 전체 복사) |
-| `ShippingMethod` | `OrderShippingMethod` (배송 방법 스냅샷) |
-| `Address` | `OrderAddress` (id 제거 후 새 레코드 생성) |
-| `LineItemAdjustment` | `OrderLineItemAdjustment` |
-| `LineItemTaxLine` | `OrderLineItemTaxLine` |
-| `CreditLine` | `OrderCreditLine` |
+| Cart 데이터             | Order 데이터                         |
+| -------------------- | --------------------------------- |
+| `LineItem`           | `OrderLineItem` (상품 스냅샷 전체 복사)    |
+| `ShippingMethod`     | `OrderShippingMethod` (배송 방법 스냅샷) |
+| `Address`            | `OrderAddress` (id 제거 후 새 레코드 생성) |
+| `LineItemAdjustment` | `OrderLineItemAdjustment`         |
+| `LineItemTaxLine`    | `OrderLineItemTaxLine`            |
+| `CreditLine`         | `OrderCreditLine`                 |
 
 ---
 

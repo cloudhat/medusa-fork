@@ -13,6 +13,21 @@
 | `POST` | `/store/carts/:id/promotions` | [updateCartPromotionsWorkflow](./flow-updateCartPromotionsWorkflow.md) (`action: ADD`) |
 | `DELETE` | `/store/carts/:id/promotions` | [updateCartPromotionsWorkflow](./flow-updateCartPromotionsWorkflow.md) (`action: REMOVE`) |
 
+### 카트 생성 시 프로모션 동시 적용
+
+`POST /store/carts` 의 `promo_codes` 파라미터를 사용하면 카트 생성과 동시에 프로모션을 적용할 수 있다. 이 경우 별도의 `/promotions` 호출이 불필요하다.
+
+```json
+POST /store/carts
+{
+  "region_id": "reg_123",
+  "promo_codes": ["SUMMER10"],
+  "items": [{ "variant_id": "var_123", "quantity": 1 }]
+}
+```
+
+내부적으로 `createCartWorkflow` 가 `updateCartPromotionsWorkflow`(`action: ADD`)를 호출한다.
+
 ---
 
 ## [updateCartPromotionsWorkflow](./flow-updateCartPromotionsWorkflow.md)

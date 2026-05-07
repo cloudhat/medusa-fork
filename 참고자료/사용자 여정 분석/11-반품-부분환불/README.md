@@ -8,13 +8,27 @@
 
 ## API 엔드포인트
 
+### 관리자 주도 반품
+
 | 메서드 | 경로 | 워크플로우 |
 |--------|------|-----------|
 | `POST` | `/admin/returns` | [beginReturnOrderWorkflow](./flow-beginReturnOrderWorkflow.md) |
+| `POST` | `/admin/returns/:id` | [updateReturnWorkflow](./flow-updateReturnWorkflow.md) |
 | `POST` | `/admin/returns/:id/request-items` | [requestItemReturnWorkflow](./flow-requestItemReturnWorkflow.md) |
+| `POST` | `/admin/returns/:id/request-items/:action_id` | [updateRequestItemReturnWorkflow](./flow-updateRequestItemReturnWorkflow.md) |
+| `DELETE` | `/admin/returns/:id/request-items/:action_id` | [removeItemReturnActionWorkflow](./flow-removeItemReturnActionWorkflow.md) |
+| `POST` | `/admin/returns/:id/shipping-method` | [createReturnShippingMethodWorkflow](./flow-createReturnShippingMethodWorkflow.md) |
 | `POST` | `/admin/returns/:id/request` | [confirmReturnRequestWorkflow](./flow-confirmReturnRequestWorkflow.md) |
+| `POST` | `/admin/returns/:id/receive` | [beginReceiveReturnWorkflow](./flow-beginReceiveReturnWorkflow.md) |
+| `POST` | `/admin/returns/:id/receive-items` | [receiveItemReturnRequestWorkflow](./flow-receiveItemReturnRequestWorkflow.md) |
+| `POST` | `/admin/returns/:id/dismiss-items` | [dismissItemReturnRequestWorkflow](./flow-dismissItemReturnRequestWorkflow.md) |
 | `POST` | `/admin/returns/:id/receive/confirm` | [confirmReturnReceiveWorkflow](./flow-confirmReturnReceiveWorkflow.md) |
 | `POST` | `/admin/payments/:id/refund` | [refundPaymentWorkflow](./flow-refundPaymentWorkflow.md) |
+
+### 고객 직접 반품
+
+| 메서드 | 경로 | 워크플로우 |
+|--------|------|-----------|
 | `POST` | `/store/returns` | [createAndCompleteReturnOrderWorkflow](./flow-createAndCompleteReturnOrderWorkflow.md) |
 
 ---
@@ -23,7 +37,7 @@
 
 | 유형 | 설명 | 진입 워크플로우 |
 |------|------|----------------|
-| 관리자 주도 반품 | 관리자가 단계별로 반품 승인 | `beginReturnOrderWorkflow` → `confirmReturnRequestWorkflow` → `confirmReturnReceiveWorkflow` |
+| 관리자 주도 반품 | 관리자가 단계별로 반품 승인 | `beginReturnOrderWorkflow` → `requestItemReturnWorkflow` → `createReturnShippingMethodWorkflow` → `confirmReturnRequestWorkflow` → `beginReceiveReturnWorkflow` → `receiveItemReturnRequestWorkflow` → `confirmReturnReceiveWorkflow` |
 | 고객 직접 반품 (단순) | 생성+완료 한 번에 처리 | `createAndCompleteReturnOrderWorkflow` |
 | 클레임 (손상/분실) | 환불 또는 교체 처리 | `beginClaimOrderWorkflow` → `confirmClaimRequestWorkflow` |
 
@@ -42,7 +56,20 @@
 | `createReturnsStep` | `ORDER` | Return 레코드 생성 (`status: OPEN`) |
 | `createOrderChangeStep` | `ORDER` | OrderChange 생성 (`change_type: "return_request"`) |
 
-### Step 2: [requestItemReturnWorkflow](./flow-requestItemReturnWorkflow.md)
+### Step 2 (선택): [updateReturnWorkflow](./flow-updateReturnWorkflow.md)
+
+**파일**: [packages/core/core-flows/src/order/workflows/return/update-return.ts](../../../../packages/core/core-flows/src/order/workflows/return/update-return.ts)
+
+반품의 `location_id`, `no_notification`, `metadata`를 업데이트한다. OrderChange가 PENDING 또는 REQUESTED 상태일 때만 실행 가능하다.
+
+| Step | 모듈 | 동작 |
+|------|------|------|
+| `useRemoteQueryStep` | Remote Query | Return·OrderChange 조회 |
+| `updateReturnValidationStep` | — | 취소 여부 및 OrderChange 활성 상태 확인 |
+| `updateReturnsStep` | `ORDER` | Return 레코드 업데이트 |
+| `previewOrderChangeStep` | `ORDER` | 변경 미리보기 반환 |
+
+### Step 3: [requestItemReturnWorkflow](./flow-requestItemReturnWorkflow.md)
 
 아이템을 반품 대상으로 추가한다. 이 단계에서는 OrderChangeAction 레코드만 생성되고, 실제 ReturnItem은 아직 생성되지 않는다.
 
@@ -51,7 +78,30 @@
 | `createOrderChangeActionsWorkflow` | `ORDER` | `ChangeActionType.RETURN_ITEM` action 생성 |
 | `refreshReturnShippingWorkflow` | `ORDER` | 반품 배송비 재계산 |
 
-### Step 3: [confirmReturnRequestWorkflow](./flow-confirmReturnRequestWorkflow.md)
+### Step 3-1 (선택): [updateRequestItemReturnWorkflow](./flow-updateRequestItemReturnWorkflow.md) / [removeItemReturnActionWorkflow](./flow-removeItemReturnActionWorkflow.md)
+
+**파일**: [packages/core/core-flows/src/order/workflows/return/update-request-item-return.ts](../../../../packages/core/core-flows/src/order/workflows/return/update-request-item-return.ts)  
+**파일**: [packages/core/core-flows/src/order/workflows/return/remove-item-return-action.ts](../../../../packages/core/core-flows/src/order/workflows/return/remove-item-return-action.ts)
+
+- `POST /admin/returns/:id/request-items/:action_id` → `updateRequestItemReturnWorkflow`: 이미 추가된 반품 아이템 액션의 수량 등을 수정한다.
+- `DELETE /admin/returns/:id/request-items/:action_id` → `removeItemReturnActionWorkflow`: 반품 아이템 액션을 제거한다.
+
+### Step 4: [createReturnShippingMethodWorkflow](./flow-createReturnShippingMethodWorkflow.md)
+
+**파일**: [packages/core/core-flows/src/order/workflows/return/create-return-shipping-method.ts](../../../../packages/core/core-flows/src/order/workflows/return/create-return-shipping-method.ts)
+
+반품 배송 방법을 지정한다. 반품 아이템 목록 기반으로 배송비를 계산해 OrderChangeAction(`SHIPPING_ADD`)을 생성한다.
+
+| Step | 모듈 | 동작 |
+|------|------|------|
+| `useRemoteQueryStep` (×3) | Remote Query | Return·Order·OrderChange 조회 |
+| `createReturnShippingMethodValidationStep` | — | 취소 여부 및 OrderChange 활성 상태 확인 |
+| `fetchShippingOptionForOrderWorkflow` | `FULFILLMENT` | 배송 옵션 조회 및 가격 계산 |
+| `createOrderShippingMethods` | `ORDER` | OrderShippingMethod 생성 |
+| `updateOrderTaxLinesWorkflow` | `TAX` | 반품 배송 세금 라인 갱신 |
+| `createOrderChangeActionsWorkflow` | `ORDER` | `ChangeActionType.SHIPPING_ADD` action 생성 |
+
+### Step 5: [confirmReturnRequestWorkflow](./flow-confirmReturnRequestWorkflow.md)
 
 **파일**: [packages/core/core-flows/src/order/workflows/return/confirm-return-request.ts](../../../../packages/core/core-flows/src/order/workflows/return/confirm-return-request.ts)
 
@@ -68,7 +118,43 @@
 | 4c | `emitEventStep` | — | `order.return_requested` |
 | 5 | `createOrUpdateOrderPaymentCollectionWorkflow` | `PAYMENT` | 결제 컬렉션 갱신 |
 
-### Step 4: [confirmReturnReceiveWorkflow](./flow-confirmReturnReceiveWorkflow.md) (재고 복원)
+### Step 6: [beginReceiveReturnWorkflow](./flow-beginReceiveReturnWorkflow.md)
+
+**파일**: [packages/core/core-flows/src/order/workflows/return/begin-receive-return.ts](../../../../packages/core/core-flows/src/order/workflows/return/begin-receive-return.ts)
+
+실물 수령 프로세스를 시작한다. 수령용 OrderChange(`change_type: "return_receive"`)를 새로 생성한다. 이 단계 이후에 아이템별 수령 처리(Step 7)가 가능하다.
+
+| Step | 모듈 | 동작 |
+|------|------|------|
+| `useRemoteQueryStep` (×2) | Remote Query | Return·Order 조회 |
+| `beginReceiveReturnValidationStep` | — | 취소 여부 확인 |
+| `createOrderChangeStep` | `ORDER` | OrderChange 생성 (`change_type: "return_receive"`) |
+
+### Step 7: [receiveItemReturnRequestWorkflow](./flow-receiveItemReturnRequestWorkflow.md)
+
+**파일**: [packages/core/core-flows/src/order/workflows/return/receive-item-return-request.ts](../../../../packages/core/core-flows/src/order/workflows/return/receive-item-return-request.ts)
+
+수령할 아이템을 개별 등록한다. `RECEIVE_RETURN_ITEM` action을 생성하며, 이 action이 Step 8에서 재고 복원에 사용된다.
+
+| Step | 모듈 | 동작 |
+|------|------|------|
+| `useRemoteQueryStep` (×3) | Remote Query | Return·Order·OrderChange 조회 |
+| `receiveItemReturnRequestValidationStep` | — | 취소·활성 상태·아이템 존재 확인 |
+| `createOrderChangeActionsWorkflow` | `ORDER` | `ChangeActionType.RECEIVE_RETURN_ITEM` action 생성 |
+
+### Step 7-1 (선택): [dismissItemReturnRequestWorkflow](./flow-dismissItemReturnRequestWorkflow.md)
+
+**파일**: [packages/core/core-flows/src/order/workflows/return/dismiss-item-return-request.ts](../../../../packages/core/core-flows/src/order/workflows/return/dismiss-item-return-request.ts)
+
+파손 또는 거절 아이템을 처리한다. `RECEIVE_DAMAGED_RETURN_ITEM` action을 생성하며, 이 action은 Step 8의 재고 복원 대상에서 제외된다.
+
+| Step | 모듈 | 동작 |
+|------|------|------|
+| `useRemoteQueryStep` (×3) | Remote Query | Return·Order·OrderChange 조회 |
+| `dismissItemReturnRequestValidationStep` | — | 취소·활성 상태·아이템 존재 확인 |
+| `createOrderChangeActionsWorkflow` | `ORDER` | `ChangeActionType.RECEIVE_DAMAGED_RETURN_ITEM` action 생성 |
+
+### Step 8: [confirmReturnReceiveWorkflow](./flow-confirmReturnReceiveWorkflow.md) (재고 복원)
 
 **파일**: [packages/core/core-flows/src/order/workflows/return/confirm-receive-return-request.ts](../../../../packages/core/core-flows/src/order/workflows/return/confirm-receive-return-request.ts)
 
