@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Customer {
+  id           String    @id
+  company_name String?
+  first_name   String?
+  last_name    String?
+  email        String?
+  phone        String?
+  has_account  Boolean   @default(false)
+  metadata     Json?
+  created_by   String?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  deleted_at   DateTime?
+
+  addresses CustomerAddress[]
+  groups    CustomerGroupCustomer[]
+
+  @@unique([email, has_account], name: "IDX_customer_email_has_account")
+}
+
+model CustomerAddress {
+  id                  String    @id
+  address_name        String?
+  is_default_shipping Boolean   @default(false)
+  is_default_billing  Boolean   @default(false)
+  company             String?
+  first_name          String?
+  last_name           String?
+  address_1           String?
+  address_2           String?
+  city                String?
+  country_code        String?
+  province            String?
+  postal_code         String?
+  phone               String?
+  metadata            Json?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+  deleted_at          DateTime?
+
+  customer_id String
+  customer    Customer @relation(fields: [customer_id], references: [id])
+
+  // is_default_billing = true인 row는 customer_id당 1개 (partial unique index)
+  // is_default_shipping = true인 row는 customer_id당 1개 (partial unique index)
+  // Prisma는 WHERE 절 있는 partial unique index를 직접 지원하지 않으므로 DB 마이그레이션에서 추가 필요
+}
+
+model CustomerGroup {
+  id         String    @id
+  name       String
+  metadata   Json?
+  created_by String?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  customers CustomerGroupCustomer[]
+
+  @@unique([name], name: "IDX_customer_group_name")
+}
+
+// M2M 명시적 pivot (추가 필드 포함)
+model CustomerGroupCustomer {
+  id         String    @id
+  created_by String?
+  metadata   Json?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  customer_id        String
+  customer_group_id  String
+
+  customer       Customer      @relation(fields: [customer_id], references: [id])
+  customer_group CustomerGroup @relation(fields: [customer_group_id], references: [id])
+}

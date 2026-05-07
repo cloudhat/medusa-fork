@@ -1,0 +1,256 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Cart {
+  id               String    @id
+  region_id        String?
+  customer_id      String?
+  sales_channel_id String?
+  email            String?
+  currency_code    String
+  locale           String?
+  metadata         Json?
+  completed_at     DateTime?
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+  deleted_at       DateTime?
+
+  shipping_address_id String?
+  billing_address_id  String?
+
+  shipping_address CartAddress? @relation("CartShippingAddress", fields: [shipping_address_id], references: [id])
+  billing_address  CartAddress? @relation("CartBillingAddress", fields: [billing_address_id], references: [id])
+
+  items            CartLineItem[]
+  shipping_methods CartShippingMethod[]
+  credit_lines     CartCreditLine[]
+
+  // computed totals (not stored): original_item_total, item_total, total, subtotal,
+  // tax_total, discount_total, shipping_total 등 bigNumber computed 필드는 DB 컬럼 없음
+
+  @@index([region_id], name: "IDX_cart_region_id")
+  @@index([customer_id], name: "IDX_cart_customer_id")
+  @@index([sales_channel_id], name: "IDX_cart_sales_channel_id")
+  @@index([currency_code], name: "IDX_cart_curency_code")
+  @@index([shipping_address_id], name: "IDX_cart_shipping_address_id")
+  @@index([billing_address_id], name: "IDX_cart_billing_address_id")
+}
+
+model CartAddress {
+  id           String    @id
+  customer_id  String?
+  company      String?
+  first_name   String?
+  last_name    String?
+  address_1    String?
+  address_2    String?
+  city         String?
+  country_code String?
+  province     String?
+  postal_code  String?
+  phone        String?
+  metadata     Json?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  deleted_at   DateTime?
+
+  shipping_carts CartCart[] @relation("CartShippingAddress")
+  billing_carts  CartCart[] @relation("CartBillingAddress")
+
+  @@map("cart_address")
+}
+
+// Cart 관계를 위한 내부 뷰 (CartAddress → Cart 역참조용)
+// Prisma에서 양방향 self-referential 해소를 위해 Cart 모델의 relation 이름과 맞춤
+model CartCart {
+  id                  String       @id
+  shipping_address_id String?
+  billing_address_id  String?
+  shipping_address    CartAddress? @relation("CartShippingAddress", fields: [shipping_address_id], references: [id])
+  billing_address     CartAddress? @relation("CartBillingAddress", fields: [billing_address_id], references: [id])
+
+  @@map("cart")
+}
+
+model CartLineItem {
+  id                        String    @id
+  title                     String
+  subtitle                  String?
+  thumbnail                 String?
+  quantity                  Int
+  variant_id                String?
+  product_id                String?
+  product_title             String?
+  product_description       String?
+  product_subtitle          String?
+  product_type              String?
+  product_type_id           String?
+  product_collection        String?
+  product_handle            String?
+  variant_sku               String?
+  variant_barcode           String?
+  variant_title             String?
+  variant_option_values     Json?
+  requires_shipping         Boolean   @default(true)
+  is_discountable           Boolean   @default(true)
+  is_giftcard               Boolean   @default(false)
+  is_tax_inclusive          Boolean   @default(false)
+  is_custom_price           Boolean   @default(false)
+  compare_at_unit_price     Decimal?
+  raw_compare_at_unit_price Json?
+  unit_price                Decimal
+  raw_unit_price            Json
+  metadata                  Json?
+  created_at                DateTime  @default(now())
+  updated_at                DateTime  @updatedAt
+  deleted_at                DateTime?
+
+  // computed totals (not stored): original_total, total, subtotal, tax_total,
+  // discount_total, item_total 등 bigNumber computed 필드는 DB 컬럼 없음
+
+  cart_id String
+  cart    Cart   @relation(fields: [cart_id], references: [id])
+
+  adjustments CartLineItemAdjustment[]
+  tax_lines   CartLineItemTaxLine[]
+
+  @@index([cart_id], name: "IDX_cart_line_item_cart_id")
+  @@index([variant_id], name: "IDX_line_item_variant_id")
+  @@index([product_id], name: "IDX_line_item_product_id")
+  @@index([product_type_id], name: "IDX_line_item_product_type_id")
+  @@map("cart_line_item")
+}
+
+model CartLineItemAdjustment {
+  id               String    @id
+  description      String?
+  code             String?
+  amount           Decimal
+  raw_amount       Json
+  is_tax_inclusive Boolean   @default(false)
+  provider_id      String?
+  promotion_id     String?
+  metadata         Json?
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+  deleted_at       DateTime?
+
+  item_id String
+  item    CartLineItem @relation(fields: [item_id], references: [id])
+
+  @@index([promotion_id], name: "IDX_line_item_adjustment_promotion_id")
+  @@index([item_id], name: "IDX_cart_line_item_adjustment_item_id")
+  @@map("cart_line_item_adjustment")
+}
+
+model CartLineItemTaxLine {
+  id          String    @id
+  description String?
+  code        String
+  rate        Float
+  provider_id String?
+  metadata    Json?
+  tax_rate_id String?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  deleted_at  DateTime?
+
+  item_id String
+  item    CartLineItem @relation(fields: [item_id], references: [id])
+
+  @@index([tax_rate_id], name: "IDX_line_item_tax_line_tax_rate_id")
+  @@index([item_id], name: "IDX_cart_line_item_tax_line_item_id")
+  @@map("cart_line_item_tax_line")
+}
+
+model CartShippingMethod {
+  id                 String    @id
+  name               String
+  description        Json?
+  amount             Decimal
+  raw_amount         Json
+  is_tax_inclusive   Boolean   @default(false)
+  shipping_option_id String?
+  data               Json?
+  metadata           Json?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+  deleted_at         DateTime?
+
+  // computed totals (not stored): original_total, total, subtotal, tax_total,
+  // discount_total 등 bigNumber computed 필드는 DB 컬럼 없음
+
+  cart_id String
+  cart    Cart   @relation(fields: [cart_id], references: [id])
+
+  tax_lines   CartShippingMethodTaxLine[]
+  adjustments CartShippingMethodAdjustment[]
+
+  @@index([cart_id], name: "IDX_cart_shipping_method_cart_id")
+  @@index([shipping_option_id], name: "IDX_shipping_method_option_id")
+  @@map("cart_shipping_method")
+}
+
+model CartShippingMethodTaxLine {
+  id                 String    @id
+  description        String?
+  code               String
+  rate               Float
+  provider_id        String?
+  tax_rate_id        String?
+  metadata           Json?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+  deleted_at         DateTime?
+
+  shipping_method_id String
+  shipping_method    CartShippingMethod @relation(fields: [shipping_method_id], references: [id])
+
+  @@index([shipping_method_id], name: "IDX_cart_shipping_method_tax_line_shipping_method_id")
+  @@index([tax_rate_id], name: "IDX_shipping_method_tax_line_tax_rate_id")
+  @@map("cart_shipping_method_tax_line")
+}
+
+model CartShippingMethodAdjustment {
+  id               String    @id
+  description      String?
+  code             String?
+  amount           Decimal
+  raw_amount       Json
+  provider_id      String?
+  metadata         Json?
+  promotion_id     String?
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+  deleted_at       DateTime?
+
+  shipping_method_id String
+  shipping_method    CartShippingMethod @relation(fields: [shipping_method_id], references: [id])
+
+  @@index([promotion_id], name: "IDX_shipping_method_adjustment_promotion_id")
+  @@index([shipping_method_id], name: "IDX_cart_shipping_method_adjustment_shipping_method_id")
+  @@map("cart_shipping_method_adjustment")
+}
+
+model CartCreditLine {
+  id           String    @id
+  reference    String?
+  reference_id String?
+  amount       Decimal
+  raw_amount   Json
+  metadata     Json?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  deleted_at   DateTime?
+
+  cart_id String
+  cart    Cart   @relation(fields: [cart_id], references: [id])
+
+  @@map("credit_line")
+}

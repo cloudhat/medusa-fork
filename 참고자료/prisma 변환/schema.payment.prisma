@@ -1,0 +1,186 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PaymentCollectionStatus {
+  not_paid
+  awaiting
+  authorized
+  partially_authorized
+  captured
+  partially_captured
+  requires_action
+  canceled
+  partially_refunded
+  refunded
+}
+
+enum PaymentSessionStatus {
+  pending
+  authorized
+  captured
+  requires_more
+  error
+  canceled
+}
+
+model PaymentProvider {
+  id         String  @id
+  is_enabled Boolean @default(true)
+
+  payment_collections PaymentCollectionProvider[]
+}
+
+model PaymentCollection {
+  id                String                  @id
+  currency_code     String
+  amount            Decimal
+  raw_amount        Json
+  authorized_amount Decimal?
+  raw_authorized_amount Json?
+  captured_amount   Decimal?
+  raw_captured_amount Json?
+  refunded_amount   Decimal?
+  raw_refunded_amount Json?
+  completed_at      DateTime?
+  status            PaymentCollectionStatus @default(not_paid)
+  metadata          Json?
+  created_at        DateTime                @default(now())
+  updated_at        DateTime                @updatedAt
+  deleted_at        DateTime?
+
+  payment_providers PaymentCollectionProvider[]
+  payment_sessions  PaymentSession[]
+  payments          Payment[]
+}
+
+// pivot: payment_collection ↔ payment_provider
+model PaymentCollectionProvider {
+  payment_collection_id String
+  payment_provider_id   String
+
+  payment_collection PaymentCollection @relation(fields: [payment_collection_id], references: [id])
+  payment_provider   PaymentProvider   @relation(fields: [payment_provider_id], references: [id])
+
+  @@id([payment_collection_id, payment_provider_id])
+  @@map("payment_collection_payment_provider")
+}
+
+model PaymentSession {
+  id             String               @id
+  currency_code  String
+  amount         Decimal
+  raw_amount     Json
+  provider_id    String
+  data           Json                 @default("{}")
+  context        Json?
+  status         PaymentSessionStatus @default(pending)
+  authorized_at  DateTime?
+  metadata       Json?
+  created_at     DateTime             @default(now())
+  updated_at     DateTime             @updatedAt
+  deleted_at     DateTime?
+
+  payment_collection_id String
+  payment_collection    PaymentCollection @relation(fields: [payment_collection_id], references: [id])
+
+  payment Payment?
+
+  @@index([payment_collection_id], name: "IDX_payment_session_payment_collection_id")
+}
+
+model Payment {
+  id            String    @id
+  amount        Decimal
+  raw_amount    Json
+  currency_code String
+  provider_id   String
+  data          Json?
+  metadata      Json?
+  captured_at   DateTime?
+  canceled_at   DateTime?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+  deleted_at    DateTime?
+
+  payment_collection_id String
+  payment_collection    PaymentCollection @relation(fields: [payment_collection_id], references: [id])
+
+  payment_session_id String        @unique
+  payment_session    PaymentSession @relation(fields: [payment_session_id], references: [id])
+
+  refunds  Refund[]
+  captures Capture[]
+
+  @@index([provider_id], name: "IDX_payment_provider_id")
+  @@index([payment_collection_id], name: "IDX_payment_payment_collection_id")
+  @@index([payment_session_id], name: "IDX_payment_payment_session_id")
+}
+
+model Capture {
+  id         String    @id
+  amount     Decimal
+  raw_amount Json
+  metadata   Json?
+  created_by String?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  payment_id String
+  payment    Payment @relation(fields: [payment_id], references: [id])
+
+  @@index([payment_id], name: "IDX_capture_payment_id")
+}
+
+model RefundReason {
+  id          String    @id
+  label       String
+  code        String
+  description String?
+  metadata    Json?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  deleted_at  DateTime?
+
+  refunds Refund[]
+}
+
+model Refund {
+  id         String    @id
+  amount     Decimal
+  raw_amount Json
+  note       String?
+  created_by String?
+  metadata   Json?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  payment_id String
+  payment    Payment @relation(fields: [payment_id], references: [id])
+
+  refund_reason_id String?
+  refund_reason    RefundReason? @relation(fields: [refund_reason_id], references: [id])
+
+  @@index([payment_id], name: "IDX_refund_payment_id")
+}
+
+model AccountHolder {
+  id          String    @id
+  provider_id String
+  external_id String
+  email       String?
+  data        Json      @default("{}")
+  metadata    Json?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  deleted_at  DateTime?
+
+  @@unique([provider_id, external_id])
+}

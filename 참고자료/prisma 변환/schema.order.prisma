@@ -1,0 +1,728 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderStatus {
+  pending
+  completed
+  draft
+  archived
+  canceled
+  requires_action
+}
+
+enum OrderChangeStatus {
+  confirmed
+  declined
+  requested
+  canceled
+  in_review
+  pending_to_confirm
+}
+
+enum ReturnStatus {
+  open
+  requested
+  received
+  partially_received
+  canceled
+}
+
+enum ClaimType {
+  replace
+  refund
+}
+
+enum ClaimReason {
+  missing_item
+  wrong_item
+  production_failure
+  other
+}
+
+// ────────────────────────────────────────────────────
+// 공유 주소
+// ────────────────────────────────────────────────────
+
+model OrderAddress {
+  id           String    @id
+  customer_id  String?
+  company      String?
+  first_name   String?
+  last_name    String?
+  address_1    String?
+  address_2    String?
+  city         String?
+  country_code String?
+  province     String?
+  postal_code  String?
+  phone        String?
+  metadata     Json?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  deleted_at   DateTime?
+
+  shipping_orders Order[] @relation("OrderShippingAddress")
+  billing_orders  Order[] @relation("OrderBillingAddress")
+
+  @@index([customer_id], name: "IDX_order_address_customer_id")
+}
+
+// ────────────────────────────────────────────────────
+// Order
+// ────────────────────────────────────────────────────
+
+model Order {
+  id                String      @id
+  display_id        Int         @default(autoincrement())
+  custom_display_id String?
+  region_id         String?
+  customer_id       String?
+  version           Int         @default(1)
+  sales_channel_id  String?
+  status            OrderStatus @default(pending)
+  is_draft_order    Boolean     @default(false)
+  email             String?
+  currency_code     String
+  locale            String?
+  no_notification   Boolean?
+  metadata          Json?
+  canceled_at       DateTime?
+  created_at        DateTime    @default(now())
+  updated_at        DateTime    @updatedAt
+  deleted_at        DateTime?
+
+  shipping_address_id String?
+  billing_address_id  String?
+
+  shipping_address OrderAddress? @relation("OrderShippingAddress", fields: [shipping_address_id], references: [id])
+  billing_address  OrderAddress? @relation("OrderBillingAddress", fields: [billing_address_id], references: [id])
+
+  summary          OrderSummary[]
+  items            OrderItem[]
+  shipping_methods OrderShipping[]
+  transactions     OrderTransaction[]
+  credit_lines     OrderCreditLine[]
+  returns          Return[]
+  changes          OrderChange[]
+
+  @@unique([custom_display_id], name: "IDX_order_custom_display_id")
+  @@index([display_id], name: "IDX_order_display_id")
+  @@index([region_id], name: "IDX_order_region_id")
+  @@index([customer_id], name: "IDX_order_customer_id")
+  @@index([sales_channel_id], name: "IDX_order_sales_channel_id")
+  @@index([currency_code], name: "IDX_order_currency_code")
+  @@index([is_draft_order], name: "IDX_order_is_draft_order")
+  @@index([shipping_address_id], name: "IDX_order_shipping_address_id")
+  @@index([billing_address_id], name: "IDX_order_billing_address_id")
+  @@index([deleted_at], name: "IDX_order_deleted_at")
+}
+
+model OrderSummary {
+  id         String   @id
+  version    Int      @default(1)
+  totals     Json
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  deleted_at DateTime?
+
+  order_id String
+  order    Order  @relation(fields: [order_id], references: [id])
+
+  @@index([order_id, version], name: "IDX_order_summary_order_id_version")
+  @@index([deleted_at], name: "IDX_order_summary_deleted_at")
+  @@map("order_summary")
+}
+
+// ────────────────────────────────────────────────────
+// Line Item (공유 데이터)
+// ────────────────────────────────────────────────────
+
+model OrderLineItem {
+  id                    String    @id
+  title                 String
+  subtitle              String?
+  thumbnail             String?
+  variant_id            String?
+  product_id            String?
+  product_title         String?
+  product_description   String?
+  product_subtitle      String?
+  product_type          String?
+  product_type_id       String?
+  product_collection    String?
+  product_handle        String?
+  variant_sku           String?
+  variant_barcode       String?
+  variant_title         String?
+  variant_option_values Json?
+  requires_shipping     Boolean   @default(true)
+  is_giftcard           Boolean   @default(false)
+  is_discountable       Boolean   @default(true)
+  is_tax_inclusive      Boolean   @default(false)
+  compare_at_unit_price     Decimal?
+  raw_compare_at_unit_price Json?
+  unit_price                Decimal?
+  raw_unit_price            Json?
+  is_custom_price       Boolean   @default(false)
+  metadata              Json?
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
+  deleted_at            DateTime?
+
+  tax_lines   OrderLineItemTaxLine[]
+  adjustments OrderLineItemAdjustment[]
+
+  order_items   OrderItem[]
+  return_items  ReturnItem[]
+  claim_items   OrderClaimItem[]
+  exchange_items OrderExchangeItem[]
+
+  @@index([product_id], name: "IDX_order_line_item_product_id")
+  @@index([product_type_id], name: "IDX_line_item_product_type_id")
+  @@index([variant_id], name: "IDX_order_line_item_variant_id")
+  @@index([deleted_at], name: "IDX_order_line_item_deleted_at")
+}
+
+model OrderLineItemTaxLine {
+  id          String   @id
+  description String?
+  tax_rate_id String?
+  code        String
+  rate        Decimal
+  raw_rate    Json
+  provider_id String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  deleted_at  DateTime?
+
+  item_id String
+  item    OrderLineItem @relation(fields: [item_id], references: [id])
+
+  @@index([item_id], name: "IDX_order_line_item_tax_line_item_id")
+}
+
+model OrderLineItemAdjustment {
+  id               String    @id
+  version          Int       @default(1)
+  description      String?
+  promotion_id     String?
+  code             String?
+  amount           Decimal
+  raw_amount       Json
+  provider_id      String?
+  is_tax_inclusive Boolean   @default(false)
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+  deleted_at       DateTime?
+
+  item_id String
+  item    OrderLineItem @relation(fields: [item_id], references: [id])
+
+  @@index([item_id], name: "IDX_order_order_line_item_adjustment_item_id")
+}
+
+// ────────────────────────────────────────────────────
+// Order Item (버전별 수량 추적)
+// ────────────────────────────────────────────────────
+
+model OrderItem {
+  id                        String    @id
+  version                   Int       @default(1)
+  unit_price                Decimal?
+  raw_unit_price            Json?
+  compare_at_unit_price     Decimal?
+  raw_compare_at_unit_price Json?
+  quantity                  Decimal
+  raw_quantity              Json
+  fulfilled_quantity        Decimal   @default(0)
+  raw_fulfilled_quantity    Json?
+  delivered_quantity        Decimal   @default(0)
+  raw_delivered_quantity    Json?
+  shipped_quantity          Decimal   @default(0)
+  raw_shipped_quantity      Json?
+  return_requested_quantity Decimal   @default(0)
+  raw_return_requested_quantity Json?
+  return_received_quantity  Decimal   @default(0)
+  raw_return_received_quantity  Json?
+  return_dismissed_quantity Decimal   @default(0)
+  raw_return_dismissed_quantity Json?
+  written_off_quantity      Decimal   @default(0)
+  raw_written_off_quantity  Json?
+  metadata                  Json?
+  created_at                DateTime  @default(now())
+  updated_at                DateTime  @updatedAt
+  deleted_at                DateTime?
+
+  order_id String
+  order    Order  @relation(fields: [order_id], references: [id])
+
+  item_id String
+  item    OrderLineItem @relation(fields: [item_id], references: [id])
+
+  @@index([order_id], name: "IDX_order_item_order_id")
+  @@index([order_id, version], name: "IDX_order_item_order_id_version")
+  @@index([item_id], name: "IDX_order_item_item_id")
+  @@index([deleted_at], name: "IDX_order_item_deleted_at")
+}
+
+// ────────────────────────────────────────────────────
+// Shipping Method
+// ────────────────────────────────────────────────────
+
+model OrderShippingMethod {
+  id                 String    @id
+  name               String
+  description        Json?
+  amount             Decimal
+  raw_amount         Json
+  is_tax_inclusive   Boolean   @default(false)
+  is_custom_amount   Boolean   @default(false)
+  shipping_option_id String?
+  data               Json?
+  metadata           Json?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+  deleted_at         DateTime?
+
+  tax_lines   OrderShippingMethodTaxLine[]
+  adjustments OrderShippingMethodAdjustment[]
+  order_shipping OrderShipping[]
+
+  @@index([shipping_option_id], name: "IDX_order_shipping_method_shipping_option_id")
+}
+
+model OrderShippingMethodTaxLine {
+  id                 String   @id
+  description        String?
+  tax_rate_id        String?
+  code               String
+  rate               Decimal
+  raw_rate           Json
+  provider_id        String?
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+  deleted_at         DateTime?
+
+  shipping_method_id String
+  shipping_method    OrderShippingMethod @relation(fields: [shipping_method_id], references: [id])
+
+  @@index([shipping_method_id], name: "IDX_order_shipping_method_tax_line_shipping_method_id")
+  @@map("order_shipping_method_tax_line")
+}
+
+model OrderShippingMethodAdjustment {
+  id               String   @id
+  version          Int      @default(1)
+  description      String?
+  promotion_id     String?
+  code             String?
+  amount           Decimal
+  raw_amount       Json
+  provider_id      String?
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+  deleted_at       DateTime?
+
+  shipping_method_id String
+  shipping_method    OrderShippingMethod @relation(fields: [shipping_method_id], references: [id])
+
+  @@unique([version, shipping_method_id], name: "IDX_order_shipping_method_adjustment_version_shipping_method")
+  @@index([shipping_method_id], name: "IDX_order_shipping_method_adjustment_shipping_method_id")
+  @@map("order_shipping_method_adjustment")
+}
+
+// OrderShipping: Order/Return/Exchange/Claim ↔ ShippingMethod 연결
+model OrderShipping {
+  id         String    @id
+  version    Int       @default(1)
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  order_id   String
+  order      Order  @relation(fields: [order_id], references: [id])
+
+  return_id  String?
+  return     Return?  @relation(fields: [return_id], references: [id])
+
+  exchange_id String?
+  exchange    OrderExchange? @relation(fields: [exchange_id], references: [id])
+
+  claim_id    String?
+  claim       OrderClaim?    @relation(fields: [claim_id], references: [id])
+
+  shipping_method_id String
+  shipping_method    OrderShippingMethod @relation(fields: [shipping_method_id], references: [id])
+
+  @@index([order_id], name: "IDX_order_shipping_order_id")
+  @@index([order_id, version], name: "IDX_order_shipping_order_id_version")
+  @@index([return_id], name: "IDX_order_shipping_return_id")
+  @@index([exchange_id], name: "IDX_order_shipping_exchange_id")
+  @@index([claim_id], name: "IDX_order_shipping_claim_id")
+  @@index([shipping_method_id], name: "IDX_order_shipping_shipping_method_id")
+  @@index([deleted_at], name: "IDX_order_shipping_deleted_at")
+}
+
+// ────────────────────────────────────────────────────
+// Transaction / CreditLine
+// ────────────────────────────────────────────────────
+
+model OrderTransaction {
+  id           String    @id
+  version      Int       @default(1)
+  amount       Decimal
+  raw_amount   Json
+  currency_code String
+  reference    String?
+  reference_id String?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  deleted_at   DateTime?
+
+  order_id  String
+  order     Order  @relation(fields: [order_id], references: [id])
+
+  return_id String?
+  return    Return? @relation(fields: [return_id], references: [id])
+
+  exchange_id String?
+  exchange    OrderExchange? @relation(fields: [exchange_id], references: [id])
+
+  claim_id String?
+  claim    OrderClaim? @relation(fields: [claim_id], references: [id])
+
+  @@index([order_id], name: "IDX_order_transaction_order_id")
+  @@index([order_id, version], name: "IDX_order_transaction_order_id_version")
+  @@index([reference_id], name: "IDX_order_transaction_reference_id")
+  @@index([return_id], name: "IDX_order_transaction_return_id")
+  @@index([exchange_id], name: "IDX_order_transaction_exchange_id")
+  @@index([claim_id], name: "IDX_order_transaction_claim_id")
+  @@index([currency_code], name: "IDX_order_transaction_currency_code")
+  @@index([deleted_at], name: "IDX_order_transaction_deleted_at")
+}
+
+model OrderCreditLine {
+  id           String    @id
+  version      Int       @default(1)
+  reference    String?
+  reference_id String?
+  amount       Decimal
+  raw_amount   Json
+  metadata     Json?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  deleted_at   DateTime?
+
+  order_id String
+  order    Order  @relation(fields: [order_id], references: [id])
+
+  @@index([order_id], name: "IDX_order_credit_line_order_id")
+  @@index([order_id, version], name: "IDX_order_credit_line_order_id_version")
+  @@index([deleted_at], name: "IDX_order_credit_line_deleted_at")
+}
+
+// ────────────────────────────────────────────────────
+// Order Change
+// ────────────────────────────────────────────────────
+
+model OrderChange {
+  id                    String            @id
+  return_id             String?
+  claim_id              String?
+  exchange_id           String?
+  version               Int
+  change_type           String?
+  description           String?
+  status                OrderChangeStatus? @default(pending_to_confirm)
+  internal_note         String?
+  created_by            String?
+  requested_by          String?
+  requested_at          DateTime?
+  confirmed_by          String?
+  confirmed_at          DateTime?
+  declined_by           String?
+  declined_reason       String?
+  metadata              Json?
+  declined_at           DateTime?
+  canceled_by           String?
+  canceled_at           DateTime?
+  carry_over_promotions Boolean?
+  created_at            DateTime          @default(now())
+  updated_at            DateTime          @updatedAt
+  deleted_at            DateTime?
+
+  order_id String
+  order    Order  @relation(fields: [order_id], references: [id])
+
+  actions OrderChangeAction[]
+
+  @@index([order_id], name: "IDX_order_change_order_id")
+  @@index([order_id, version], name: "IDX_order_change_version")
+  @@index([return_id], name: "IDX_order_change_return_id")
+  @@index([claim_id], name: "IDX_order_change_claim_id")
+  @@index([exchange_id], name: "IDX_order_change_exchange_id")
+  @@index([status], name: "IDX_order_change_status")
+  @@index([deleted_at], name: "IDX_order_change_deleted_at")
+}
+
+model OrderChangeAction {
+  id            String    @id
+  order_id      String
+  return_id     String?
+  claim_id      String?
+  exchange_id   String?
+  ordering      Int       @default(autoincrement())
+  version       Int?
+  reference     String?
+  reference_id  String?
+  action        String
+  details       Json      @default("{}")
+  amount        Decimal?
+  raw_amount    Json?
+  internal_note String?
+  applied       Boolean   @default(false)
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+  deleted_at    DateTime?
+
+  order_change_id String?
+  order_change    OrderChange? @relation(fields: [order_change_id], references: [id])
+
+  @@index([order_change_id], name: "IDX_order_change_action_order_change_id")
+  @@index([order_id], name: "IDX_order_change_action_order_id")
+  @@index([return_id], name: "IDX_order_change_action_return_id")
+  @@index([claim_id], name: "IDX_order_change_action_claim_id")
+  @@index([exchange_id], name: "IDX_order_change_action_exchange_id")
+  @@index([ordering], name: "IDX_order_change_action_ordering")
+  @@index([deleted_at], name: "IDX_order_change_action_deleted_at")
+}
+
+// ────────────────────────────────────────────────────
+// Return
+// ────────────────────────────────────────────────────
+
+model ReturnReason {
+  id          String    @id
+  value       String
+  label       String
+  description String?
+  metadata    Json?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  deleted_at  DateTime?
+
+  parent_return_reason_id String?
+  parent_return_reason    ReturnReason?  @relation("ReturnReasonHierarchy", fields: [parent_return_reason_id], references: [id])
+  return_reason_children  ReturnReason[] @relation("ReturnReasonHierarchy")
+
+  return_items ReturnItem[]
+
+  @@index([value], name: "IDX_return_reason_value")
+  @@index([parent_return_reason_id], name: "IDX_return_reason_parent_return_reason_id")
+  @@index([deleted_at], name: "IDX_return_reason_deleted_at")
+}
+
+model Return {
+  id             String       @id
+  order_version  Int
+  display_id     Int          @default(autoincrement())
+  status         ReturnStatus @default(open)
+  location_id    String?
+  no_notification Boolean?
+  refund_amount  Decimal?
+  raw_refund_amount Json?
+  created_by     String?
+  metadata       Json?
+  requested_at   DateTime?
+  received_at    DateTime?
+  canceled_at    DateTime?
+  created_at     DateTime     @default(now())
+  updated_at     DateTime     @updatedAt
+  deleted_at     DateTime?
+
+  order_id String
+  order    Order  @relation(fields: [order_id], references: [id])
+
+  exchange_id String?
+  exchange    OrderExchange? @relation("ReturnExchange", fields: [exchange_id], references: [id])
+
+  claim_id String?
+  claim    OrderClaim? @relation("ReturnClaim", fields: [claim_id], references: [id])
+
+  items            ReturnItem[]
+  shipping_methods OrderShipping[]
+  transactions     OrderTransaction[]
+
+  @@index([display_id], name: "IDX_return_display_id")
+  @@index([order_id], name: "IDX_return_order_id")
+  @@index([exchange_id], name: "IDX_return_exchange_id")
+  @@index([claim_id], name: "IDX_return_claim_id")
+  @@index([deleted_at], name: "IDX_return_deleted_at")
+}
+
+model ReturnItem {
+  id                String    @id
+  quantity          Decimal
+  raw_quantity      Json
+  received_quantity Decimal   @default(0)
+  raw_received_quantity Json?
+  damaged_quantity  Decimal   @default(0)
+  raw_damaged_quantity  Json?
+  note              String?
+  metadata          Json?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+  deleted_at        DateTime?
+
+  return_id String
+  return    Return @relation(fields: [return_id], references: [id])
+
+  item_id String
+  item    OrderLineItem @relation(fields: [item_id], references: [id])
+
+  reason_id String?
+  reason    ReturnReason? @relation(fields: [reason_id], references: [id])
+
+  @@index([return_id], name: "IDX_return_item_return_id")
+  @@index([item_id], name: "IDX_return_item_item_id")
+  @@index([reason_id], name: "IDX_return_item_reason_id")
+  @@index([deleted_at], name: "IDX_return_item_deleted_at")
+  @@map("return_item")
+}
+
+// ────────────────────────────────────────────────────
+// Claim
+// ────────────────────────────────────────────────────
+
+model OrderClaim {
+  id             String    @id
+  order_version  Int
+  display_id     Int       @default(autoincrement())
+  type           ClaimType
+  no_notification Boolean?
+  refund_amount  Decimal?
+  raw_refund_amount Json?
+  created_by     String?
+  canceled_at    DateTime?
+  metadata       Json?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  deleted_at     DateTime?
+
+  order_id String
+  order    Order  @relation(fields: [order_id], references: [id])
+
+  return_id String?
+  return    Return? @relation("ReturnClaim", fields: [return_id], references: [id])
+
+  additional_items  OrderClaimItem[]
+  shipping_methods  OrderShipping[]
+  transactions      OrderTransaction[]
+
+  @@index([display_id], name: "IDX_order_claim_display_id")
+  @@index([order_id], name: "IDX_order_claim_order_id")
+  @@index([return_id], name: "IDX_order_claim_return_id")
+  @@index([deleted_at], name: "IDX_order_claim_deleted_at")
+}
+
+model OrderClaimItem {
+  id                  String      @id
+  reason              ClaimReason?
+  quantity            Decimal
+  raw_quantity        Json
+  is_additional_item  Boolean     @default(false)
+  note                String?
+  metadata            Json?
+  created_at          DateTime    @default(now())
+  updated_at          DateTime    @updatedAt
+  deleted_at          DateTime?
+
+  claim_id String
+  claim    OrderClaim @relation(fields: [claim_id], references: [id])
+
+  item_id String
+  item    OrderLineItem @relation(fields: [item_id], references: [id])
+
+  images OrderClaimItemImage[]
+
+  @@index([claim_id], name: "IDX_order_claim_item_claim_id")
+  @@index([item_id], name: "IDX_order_claim_item_item_id")
+  @@index([deleted_at], name: "IDX_order_claim_item_deleted_at")
+}
+
+model OrderClaimItemImage {
+  id         String    @id
+  url        String
+  metadata   Json?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  claim_item_id String
+  claim_item    OrderClaimItem @relation(fields: [claim_item_id], references: [id])
+
+  @@index([claim_item_id], name: "IDX_order_claim_item_image_claim_item_id")
+  @@index([deleted_at], name: "IDX_order_claim_item_image_deleted_at")
+}
+
+// ────────────────────────────────────────────────────
+// Exchange
+// ────────────────────────────────────────────────────
+
+model OrderExchange {
+  id              String    @id
+  order_version   Int
+  display_id      Int       @default(autoincrement())
+  no_notification Boolean?
+  difference_due  Decimal?
+  raw_difference_due Json?
+  allow_backorder Boolean   @default(false)
+  created_by      String?
+  metadata        Json?
+  canceled_at     DateTime?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  order_id String
+  order    Order  @relation(fields: [order_id], references: [id])
+
+  return_id String?
+  return    Return? @relation("ReturnExchange", fields: [return_id], references: [id])
+
+  additional_items  OrderExchangeItem[]
+  shipping_methods  OrderShipping[]
+  transactions      OrderTransaction[]
+
+  @@index([display_id], name: "IDX_order_exchange_display_id")
+  @@index([order_id], name: "IDX_order_exchange_order_id")
+  @@index([return_id], name: "IDX_order_exchange_return_id")
+  @@index([deleted_at], name: "IDX_order_exchange_deleted_at")
+}
+
+model OrderExchangeItem {
+  id         String    @id
+  quantity   Decimal
+  raw_quantity Json
+  note       String?
+  metadata   Json?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  exchange_id String
+  exchange    OrderExchange @relation(fields: [exchange_id], references: [id])
+
+  item_id String
+  item    OrderLineItem @relation(fields: [item_id], references: [id])
+
+  @@index([exchange_id], name: "IDX_order_exchange_item_exchange_id")
+  @@index([item_id], name: "IDX_order_exchange_item_item_id")
+  @@index([deleted_at], name: "IDX_order_exchange_item_deleted_at")
+}

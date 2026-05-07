@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model TaxProvider {
+  id         String  @id
+  is_enabled Boolean @default(true)
+
+  regions TaxRegion[]
+}
+
+model TaxRegion {
+  id            String    @id
+  country_code  String
+  province_code String?
+  metadata      Json?
+  created_by    String?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+  deleted_at    DateTime?
+
+  provider_id String?
+  provider    TaxProvider? @relation(fields: [provider_id], references: [id])
+
+  parent_id String?
+  parent    TaxRegion?  @relation("TaxRegionHierarchy", fields: [parent_id], references: [id])
+  children  TaxRegion[] @relation("TaxRegionHierarchy")
+
+  tax_rates TaxRate[]
+
+  // DB CHECK 제약:
+  //   CK_tax_region_provider_top_level: parent_id IS NULL OR provider_id IS NULL
+  //   CK_tax_region_country_top_level:  parent_id IS NULL OR province_code IS NOT NULL
+  // Prisma는 CHECK 제약을 스키마에서 직접 표현하지 않으므로 마이그레이션 SQL에서 추가 필요
+
+  @@unique([country_code, province_code], name: "IDX_tax_region_unique_country_province")
+  // province_code IS NULL인 경우의 partial unique도 마이그레이션 SQL에서 별도 추가 필요
+}
+
+model TaxRate {
+  id             String    @id
+  rate           Float?
+  code           String
+  name           String
+  is_default     Boolean   @default(false)
+  is_combinable  Boolean   @default(false)
+  metadata       Json?
+  created_by     String?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  deleted_at     DateTime?
+
+  tax_region_id String
+  tax_region    TaxRegion @relation(fields: [tax_region_id], references: [id])
+
+  rules TaxRateRule[]
+
+  // is_default = true인 row는 tax_region_id당 1개 (partial unique)
+  // → 마이그레이션 SQL에서 IDX_single_default_region 추가 필요
+
+  @@index([tax_region_id], name: "IDX_tax_rate_tax_region_id")
+}
+
+model TaxRateRule {
+  id           String    @id
+  reference    String
+  reference_id String
+  metadata     Json?
+  created_by   String?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  deleted_at   DateTime?
+
+  tax_rate_id String
+  tax_rate    TaxRate @relation(fields: [tax_rate_id], references: [id])
+
+  @@unique([tax_rate_id, reference_id], name: "IDX_tax_rate_rule_unique_rate_reference")
+  @@index([reference_id], name: "IDX_tax_rate_rule_reference_id")
+}

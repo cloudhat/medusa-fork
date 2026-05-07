@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model InventoryItem {
+  id                String    @id
+  sku               String?
+  origin_country    String?
+  hs_code           String?
+  mid_code          String?
+  material          String?
+  weight            Int?
+  length            Int?
+  height            Int?
+  width             Int?
+  requires_shipping Boolean   @default(true)
+  description       String?
+  title             String?
+  thumbnail         String?
+  metadata          Json?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+  deleted_at        DateTime?
+
+  // computed 필드: reserved_quantity, stocked_quantity → DB 컬럼 없음
+
+  location_levels   InventoryLevel[]
+  reservation_items ReservationItem[]
+
+  @@unique([sku], name: "IDX_inventory_item_sku")
+}
+
+model InventoryLevel {
+  id                String    @id
+  location_id       String
+  stocked_quantity  Decimal   @default(0)
+  raw_stocked_quantity  Json?
+  reserved_quantity Decimal   @default(0)
+  raw_reserved_quantity Json?
+  incoming_quantity Decimal   @default(0)
+  raw_incoming_quantity Json?
+  metadata          Json?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+  deleted_at        DateTime?
+
+  // computed: available_quantity → DB 컬럼 없음
+
+  inventory_item_id String
+  inventory_item    InventoryItem @relation(fields: [inventory_item_id], references: [id])
+
+  @@unique([inventory_item_id, location_id], name: "IDX_inventory_level_location_id_inventory_item_id")
+  @@index([inventory_item_id], name: "IDX_inventory_level_inventory_item_id")
+  @@index([location_id], name: "IDX_inventory_level_location_id")
+}
+
+model ReservationItem {
+  id             String    @id
+  line_item_id   String?
+  allow_backorder Boolean  @default(false)
+  location_id    String
+  quantity       Decimal
+  raw_quantity   Json
+  external_id    String?
+  description    String?
+  created_by     String?
+  metadata       Json?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  deleted_at     DateTime?
+
+  inventory_item_id String
+  inventory_item    InventoryItem @relation(fields: [inventory_item_id], references: [id])
+
+  @@index([line_item_id], name: "IDX_reservation_item_line_item_id")
+  @@index([location_id], name: "IDX_reservation_item_location_id")
+  @@index([inventory_item_id], name: "IDX_reservation_item_inventory_item_id")
+}

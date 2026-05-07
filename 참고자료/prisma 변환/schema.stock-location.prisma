@@ -1,0 +1,38 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model StockLocationAddress {
+  id           String    @id
+  address_1    String
+  address_2    String?
+  company      String?
+  city         String?
+  country_code String
+  phone        String?
+  province     String?
+  postal_code  String?
+  metadata     Json?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  deleted_at   DateTime?
+
+  stock_location StockLocation?
+}
+
+model StockLocation {
+  id         String    @id
+  name       String
+  metadata   Json?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  address_id String?               @unique
+  address    StockLocationAddress? @relation(fields: [address_id], references: [id])
+}

@@ -1,0 +1,41 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Region {
+  id              String    @id
+  name            String
+  currency_code   String
+  automatic_taxes Boolean   @default(true)
+  metadata        Json?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  countries RegionCountry[]
+
+  @@map("region")
+}
+
+model RegionCountry {
+  iso_2        String    @id
+  iso_3        String
+  num_code     String
+  name         String
+  display_name String
+  metadata     Json?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  deleted_at   DateTime?
+
+  region_id String?
+  region    Region? @relation(fields: [region_id], references: [id])
+
+  @@unique([region_id, iso_2], name: "IDX_region_country_region_id_iso_2")
+  @@map("region_country")
+}

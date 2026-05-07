@@ -1,0 +1,232 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PromotionType {
+  standard
+  buyget
+}
+
+enum PromotionStatus {
+  draft
+  active
+  inactive
+  scheduled
+  expired
+}
+
+enum ApplicationMethodType {
+  fixed
+  percentage
+}
+
+enum ApplicationMethodTargetType {
+  order
+  items
+  shipping_methods
+}
+
+enum ApplicationMethodAllocation {
+  across
+  each
+}
+
+enum CampaignBudgetType {
+  spend
+  usage
+}
+
+enum PromotionRuleOperator {
+  gt
+  lt
+  eq
+  ne
+  lte
+  gte
+  in
+  nin
+}
+
+model Campaign {
+  id                  String    @id
+  name                String
+  description         String?
+  campaign_identifier String
+  starts_at           DateTime?
+  ends_at             DateTime?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+  deleted_at          DateTime?
+
+  budget     CampaignBudget?
+  promotions Promotion[]
+
+  @@unique([campaign_identifier], name: "IDX_campaign_campaign_identifier")
+  @@map("promotion_campaign")
+}
+
+model CampaignBudget {
+  id            String             @id
+  type          CampaignBudgetType
+  currency_code String?
+  limit         Decimal?
+  raw_limit     Json?
+  used          Decimal            @default(0)
+  raw_used      Json?
+  attribute     String?
+  created_at    DateTime           @default(now())
+  updated_at    DateTime           @updatedAt
+  deleted_at    DateTime?
+
+  campaign_id String   @unique
+  campaign    Campaign @relation(fields: [campaign_id], references: [id])
+
+  usages CampaignBudgetUsage[]
+
+  @@map("promotion_campaign_budget")
+}
+
+model CampaignBudgetUsage {
+  id              String    @id
+  attribute_value String
+  used            Decimal   @default(0)
+  raw_used        Json?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  deleted_at      DateTime?
+
+  budget_id String
+  budget    CampaignBudget @relation(fields: [budget_id], references: [id])
+
+  @@unique([attribute_value, budget_id], name: "IDX_campaign_budget_usage_attribute_budget")
+  @@map("promotion_campaign_budget_usage")
+}
+
+model Promotion {
+  id               String          @id
+  code             String
+  is_automatic     Boolean         @default(false)
+  is_tax_inclusive Boolean         @default(false)
+  limit            Int?
+  used             Int             @default(0)
+  type             PromotionType
+  status           PromotionStatus @default(draft)
+  metadata         Json?
+  created_at       DateTime        @default(now())
+  updated_at       DateTime        @updatedAt
+  deleted_at       DateTime?
+
+  campaign_id String?
+  campaign    Campaign? @relation(fields: [campaign_id], references: [id])
+
+  application_method ApplicationMethod?
+
+  rules PromotionPromotionRule[]
+
+  @@unique([code], name: "IDX_unique_promotion_code")
+  @@index([is_automatic], name: "IDX_promotion_is_automatic")
+}
+
+model ApplicationMethod {
+  id                   String                       @id
+  value                Decimal?
+  raw_value            Json?
+  currency_code        String?
+  max_quantity         Int?
+  apply_to_quantity    Int?
+  buy_rules_min_quantity Int?
+  type                 ApplicationMethodType
+  target_type          ApplicationMethodTargetType
+  allocation           ApplicationMethodAllocation?
+  created_at           DateTime                     @default(now())
+  updated_at           DateTime                     @updatedAt
+  deleted_at           DateTime?
+
+  promotion_id String    @unique
+  promotion    Promotion @relation(fields: [promotion_id], references: [id])
+
+  target_rules ApplicationMethodTargetRule[]
+  buy_rules    ApplicationMethodBuyRule[]
+
+  @@index([type], name: "IDX_application_method_type")
+  @@index([target_type], name: "IDX_application_method_target_type")
+  @@index([allocation], name: "IDX_application_method_allocation")
+  @@map("promotion_application_method")
+}
+
+model PromotionRule {
+  id          String                @id
+  description String?
+  attribute   String
+  operator    PromotionRuleOperator
+  created_at  DateTime              @default(now())
+  updated_at  DateTime              @updatedAt
+  deleted_at  DateTime?
+
+  values PromotionRuleValue[]
+
+  promotions   PromotionPromotionRule[]
+  target_rules ApplicationMethodTargetRule[]
+  buy_rules    ApplicationMethodBuyRule[]
+
+  @@index([attribute], name: "IDX_promotion_rule_attribute")
+  @@index([operator], name: "IDX_promotion_rule_operator")
+  @@index([attribute, operator], name: "IDX_promotion_rule_attribute_operator")
+  @@map("promotion_rule")
+}
+
+model PromotionRuleValue {
+  id         String    @id
+  value      String
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  promotion_rule_id String
+  promotion_rule    PromotionRule @relation(fields: [promotion_rule_id], references: [id])
+
+  @@index([promotion_rule_id, value], name: "IDX_promotion_rule_value_rule_id_value")
+  @@index([value], name: "IDX_promotion_rule_value_value")
+  @@map("promotion_rule_value")
+}
+
+// pivot: promotion_promotion_rule
+model PromotionPromotionRule {
+  promotion_id      String
+  promotion_rule_id String
+
+  promotion      Promotion     @relation(fields: [promotion_id], references: [id])
+  promotion_rule PromotionRule @relation(fields: [promotion_rule_id], references: [id])
+
+  @@id([promotion_id, promotion_rule_id])
+  @@map("promotion_promotion_rule")
+}
+
+// pivot: application_method_target_rules
+model ApplicationMethodTargetRule {
+  application_method_id String
+  promotion_rule_id     String
+
+  application_method ApplicationMethod @relation(fields: [application_method_id], references: [id])
+  promotion_rule     PromotionRule     @relation(fields: [promotion_rule_id], references: [id])
+
+  @@id([application_method_id, promotion_rule_id])
+  @@map("application_method_target_rules")
+}
+
+// pivot: application_method_buy_rules
+model ApplicationMethodBuyRule {
+  application_method_id String
+  promotion_rule_id     String
+
+  application_method ApplicationMethod @relation(fields: [application_method_id], references: [id])
+  promotion_rule     PromotionRule     @relation(fields: [promotion_rule_id], references: [id])
+
+  @@id([application_method_id, promotion_rule_id])
+  @@map("application_method_buy_rules")
+}

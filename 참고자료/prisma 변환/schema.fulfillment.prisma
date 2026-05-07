@@ -1,0 +1,255 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum GeoZoneType {
+  country
+  province
+  city
+  zip
+}
+
+enum ShippingOptionPriceType {
+  flat
+  calculated
+}
+
+enum RuleOperator {
+  in
+  eq
+  lte
+  lt
+  gte
+  gt
+  nin
+}
+
+model FulfillmentProvider {
+  id         String  @id
+  is_enabled Boolean @default(true)
+
+  shipping_options ShippingOption[]
+
+  @@map("fulfillment_provider")
+}
+
+model ShippingProfile {
+  id         String    @id
+  name       String
+  type       String
+  metadata   Json?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  shipping_options ShippingOption[]
+
+  @@unique([name], name: "IDX_shipping_profile_name")
+  @@map("shipping_profile")
+}
+
+model FulfillmentSet {
+  id         String    @id
+  name       String
+  type       String
+  metadata   Json?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  service_zones ServiceZone[]
+
+  @@unique([name], name: "IDX_fulfillment_set_name")
+  @@map("fulfillment_set")
+}
+
+model ServiceZone {
+  id         String    @id
+  name       String
+  metadata   Json?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  fulfillment_set_id String
+  fulfillment_set    FulfillmentSet @relation(fields: [fulfillment_set_id], references: [id])
+
+  geo_zones        GeoZone[]
+  shipping_options ShippingOption[]
+
+  @@unique([name], name: "IDX_service_zone_name")
+  @@map("service_zone")
+}
+
+model GeoZone {
+  id                String      @id
+  type              GeoZoneType @default(country)
+  country_code      String
+  province_code     String?
+  city              String?
+  postal_expression Json?
+  metadata          Json?
+  created_at        DateTime    @default(now())
+  updated_at        DateTime    @updatedAt
+  deleted_at        DateTime?
+
+  service_zone_id String
+  service_zone    ServiceZone @relation(fields: [service_zone_id], references: [id])
+
+  @@index([country_code], name: "IDX_geo_zone_country_code")
+  @@index([province_code], name: "IDX_geo_zone_province_code")
+  @@index([city], name: "IDX_geo_zone_city")
+  @@map("geo_zone")
+}
+
+model ShippingOptionType {
+  id          String    @id
+  label       String
+  description String?
+  code        String
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  deleted_at  DateTime?
+
+  shipping_options ShippingOption[]
+
+  @@map("shipping_option_type")
+}
+
+model ShippingOption {
+  id         String                  @id
+  name       String
+  price_type ShippingOptionPriceType @default(flat)
+  data       Json?
+  metadata   Json?
+  created_at DateTime                @default(now())
+  updated_at DateTime                @updatedAt
+  deleted_at DateTime?
+
+  service_zone_id String
+  service_zone    ServiceZone @relation(fields: [service_zone_id], references: [id])
+
+  shipping_profile_id String?
+  shipping_profile    ShippingProfile? @relation(fields: [shipping_profile_id], references: [id])
+
+  provider_id String?
+  provider    FulfillmentProvider? @relation(fields: [provider_id], references: [id])
+
+  shipping_option_type_id String
+  type                    ShippingOptionType @relation(fields: [shipping_option_type_id], references: [id])
+
+  rules        ShippingOptionRule[]
+  fulfillments Fulfillment[]
+
+  @@map("shipping_option")
+}
+
+model ShippingOptionRule {
+  id         String       @id
+  attribute  String
+  operator   RuleOperator
+  value      Json?
+  created_at DateTime     @default(now())
+  updated_at DateTime     @updatedAt
+  deleted_at DateTime?
+
+  shipping_option_id String
+  shipping_option    ShippingOption @relation(fields: [shipping_option_id], references: [id])
+
+  @@map("shipping_option_rule")
+}
+
+model FulfillmentAddress {
+  id           String    @id
+  company      String?
+  first_name   String?
+  last_name    String?
+  address_1    String?
+  address_2    String?
+  city         String?
+  country_code String?
+  province     String?
+  postal_code  String?
+  phone        String?
+  metadata     Json?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  deleted_at   DateTime?
+
+  fulfillment Fulfillment?
+
+  @@map("fulfillment_address")
+}
+
+model Fulfillment {
+  id                String    @id
+  location_id       String
+  packed_at         DateTime?
+  shipped_at        DateTime?
+  marked_shipped_by String?
+  created_by        String?
+  delivered_at      DateTime?
+  canceled_at       DateTime?
+  data              Json?
+  requires_shipping Boolean   @default(true)
+  metadata          Json?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+  deleted_at        DateTime?
+
+  shipping_option_id String?
+  shipping_option    ShippingOption? @relation(fields: [shipping_option_id], references: [id])
+
+  provider_id String?
+  provider    FulfillmentProvider? @relation(fields: [provider_id], references: [id])
+
+  delivery_address_id String?       @unique
+  delivery_address    FulfillmentAddress? @relation(fields: [delivery_address_id], references: [id])
+
+  items  FulfillmentItem[]
+  labels FulfillmentLabel[]
+
+  @@index([location_id], name: "IDX_fulfillment_location_id")
+  @@map("fulfillment")
+}
+
+model FulfillmentItem {
+  id                String    @id
+  title             String
+  sku               String
+  barcode           String
+  quantity          Decimal
+  raw_quantity      Json
+  line_item_id      String?
+  inventory_item_id String?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+  deleted_at        DateTime?
+
+  fulfillment_id String
+  fulfillment    Fulfillment @relation(fields: [fulfillment_id], references: [id])
+
+  @@index([inventory_item_id], name: "IDX_fulfillment_item_inventory_item_id")
+  @@index([line_item_id], name: "IDX_fulfillment_item_line_item_id")
+  @@map("fulfillment_item")
+}
+
+model FulfillmentLabel {
+  id             String    @id
+  tracking_number String
+  tracking_url   String
+  label_url      String
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  deleted_at     DateTime?
+
+  fulfillment_id String
+  fulfillment    Fulfillment @relation(fields: [fulfillment_id], references: [id])
+
+  @@map("fulfillment_label")
+}

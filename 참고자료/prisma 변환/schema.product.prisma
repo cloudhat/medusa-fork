@@ -1,0 +1,262 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProductStatus {
+  draft
+  published
+  proposed
+  rejected
+}
+
+model Product {
+  id             String        @id
+  title          String
+  handle         String
+  subtitle       String?
+  description    String?
+  is_giftcard    Boolean       @default(false)
+  status         ProductStatus @default(draft)
+  thumbnail      String?
+  weight         Float?
+  length         Float?
+  height         Float?
+  width          Float?
+  origin_country String?
+  hs_code        String?
+  mid_code       String?
+  material       String?
+  discountable   Boolean       @default(true)
+  external_id    String?
+  metadata       Json?
+  created_at     DateTime      @default(now())
+  updated_at     DateTime      @updatedAt
+  deleted_at     DateTime?
+
+  type_id        String?
+  collection_id  String?
+
+  type           ProductType?        @relation(fields: [type_id], references: [id])
+  collection     ProductCollection?  @relation(fields: [collection_id], references: [id])
+  variants       ProductVariant[]
+  options        ProductOption[]
+  images         ProductImage[]
+  tags           ProductTagProduct[]
+  categories     ProductCategoryProduct[]
+
+  @@index([handle], name: "IDX_product_handle_unique")
+  @@index([type_id], name: "IDX_product_type_id")
+  @@index([collection_id], name: "IDX_product_collection_id")
+  @@index([status], name: "IDX_product_status")
+}
+
+model ProductVariant {
+  id               String   @id
+  title            String
+  sku              String?
+  barcode          String?
+  ean              String?
+  upc              String?
+  allow_backorder  Boolean  @default(false)
+  manage_inventory Boolean  @default(true)
+  hs_code          String?
+  origin_country   String?
+  mid_code         String?
+  material         String?
+  weight           Float?
+  length           Float?
+  height           Float?
+  width            Float?
+  metadata         Json?
+  variant_rank     Int?     @default(0)
+  thumbnail        String?
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+  deleted_at       DateTime?
+
+  product_id String?
+  product    Product? @relation(fields: [product_id], references: [id])
+
+  images  ProductVariantProductImage[]
+  options ProductVariantOption[]
+
+  @@unique([sku], name: "IDX_product_variant_sku_unique")
+  @@unique([barcode], name: "IDX_product_variant_barcode_unique")
+  @@unique([ean], name: "IDX_product_variant_ean_unique")
+  @@unique([upc], name: "IDX_product_variant_upc_unique")
+  @@index([product_id], name: "IDX_product_variant_product_id")
+  @@index([id, product_id], name: "IDX_product_variant_id_product_id")
+}
+
+model ProductOption {
+  id         String    @id
+  title      String
+  metadata   Json?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  product_id String
+  product    Product @relation(fields: [product_id], references: [id])
+
+  values ProductOptionValue[]
+
+  @@unique([product_id, title], name: "IDX_option_product_id_title_unique")
+}
+
+model ProductOptionValue {
+  id         String    @id
+  value      String
+  metadata   Json?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  option_id String?
+  option    ProductOption? @relation(fields: [option_id], references: [id])
+
+  variants ProductVariantOption[]
+
+  @@unique([option_id, value], name: "IDX_option_value_option_id_unique")
+}
+
+// pivot: product_variant_option
+model ProductVariantOption {
+  variant_id      String
+  option_value_id String
+
+  variant      ProductVariant     @relation(fields: [variant_id], references: [id])
+  option_value ProductOptionValue @relation(fields: [option_value_id], references: [id])
+
+  @@id([variant_id, option_value_id])
+  @@map("product_variant_option")
+}
+
+model ProductCategory {
+  id          String    @id
+  name        String
+  description String    @default("")
+  handle      String
+  mpath       String
+  is_active   Boolean   @default(false)
+  is_internal Boolean   @default(false)
+  rank        Int       @default(0)
+  external_id String?
+  metadata    Json?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  deleted_at  DateTime?
+
+  parent_category_id String?
+  parent_category    ProductCategory?  @relation("CategoryHierarchy", fields: [parent_category_id], references: [id])
+  category_children  ProductCategory[] @relation("CategoryHierarchy")
+
+  products ProductCategoryProduct[]
+
+  @@unique([handle], name: "IDX_category_handle_unique")
+  @@index([mpath], name: "IDX_product_category_path")
+}
+
+// pivot: product_category_product
+model ProductCategoryProduct {
+  product_id  String
+  category_id String
+
+  product  Product         @relation(fields: [product_id], references: [id])
+  category ProductCategory @relation(fields: [category_id], references: [id])
+
+  @@id([product_id, category_id])
+  @@map("product_category_product")
+}
+
+model ProductCollection {
+  id          String    @id
+  title       String
+  handle      String
+  external_id String?
+  metadata    Json?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  deleted_at  DateTime?
+
+  products Product[]
+
+  @@unique([handle], name: "IDX_collection_handle_unique")
+}
+
+model ProductTag {
+  id          String    @id
+  value       String
+  external_id String?
+  metadata    Json?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  deleted_at  DateTime?
+
+  products ProductTagProduct[]
+
+  @@unique([value], name: "IDX_tag_value_unique")
+  @@map("product_tag")
+}
+
+// pivot: product_tags
+model ProductTagProduct {
+  product_id String
+  tag_id     String
+
+  product Product    @relation(fields: [product_id], references: [id])
+  tag     ProductTag @relation(fields: [tag_id], references: [id])
+
+  @@id([product_id, tag_id])
+  @@map("product_tags")
+}
+
+model ProductType {
+  id          String    @id
+  value       String
+  external_id String?
+  metadata    Json?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  deleted_at  DateTime?
+
+  products Product[]
+
+  @@unique([value], name: "IDX_type_value_unique")
+}
+
+model ProductImage {
+  id         String    @id
+  url        String
+  metadata   Json?
+  rank       Int       @default(0)
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  product_id String
+  product    Product @relation(fields: [product_id], references: [id])
+
+  variants ProductVariantProductImage[]
+
+  @@index([url], name: "IDX_product_image_url")
+  @@index([rank], name: "IDX_product_image_rank")
+  @@map("image")
+}
+
+// pivot: product_variant_product_image
+model ProductVariantProductImage {
+  variant_id String
+  image_id   String
+
+  variant ProductVariant @relation(fields: [variant_id], references: [id])
+  image   ProductImage   @relation(fields: [image_id], references: [id])
+
+  @@id([variant_id, image_id])
+  @@map("product_variant_product_image")
+}

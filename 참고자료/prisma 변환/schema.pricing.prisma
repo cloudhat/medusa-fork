@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PriceListStatus {
+  active
+  draft
+}
+
+enum PriceListType {
+  sale
+  override
+}
+
+enum PricingRuleOperator {
+  EQ
+  GT
+  GTE
+  LT
+  LTE
+  NIN
+  IN
+}
+
+model PriceSet {
+  id         String    @id
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  prices Price[]
+}
+
+model Price {
+  id            String    @id
+  title         String?
+  currency_code String
+  amount        Decimal
+  raw_amount    Json
+  min_quantity  Decimal?
+  raw_min_quantity Json?
+  max_quantity  Decimal?
+  raw_max_quantity Json?
+  rules_count   Int?      @default(0)
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+  deleted_at    DateTime?
+
+  price_set_id String
+  price_set    PriceSet @relation(fields: [price_set_id], references: [id])
+
+  price_list_id String?
+  price_list    PriceList? @relation(fields: [price_list_id], references: [id])
+
+  price_rules PriceRule[]
+
+  @@index([price_set_id], name: "IDX_price_price_set_id")
+  @@index([price_list_id], name: "IDX_price_price_list_id")
+  @@index([currency_code], name: "IDX_price_currency_code")
+}
+
+model PriceRule {
+  id         String              @id
+  attribute  String
+  value      String
+  operator   PricingRuleOperator @default(EQ)
+  priority   Int                 @default(0)
+  created_at DateTime            @default(now())
+  updated_at DateTime            @updatedAt
+  deleted_at DateTime?
+
+  price_id String
+  price    Price  @relation(fields: [price_id], references: [id])
+
+  @@unique([price_id, attribute, operator], name: "IDX_price_rule_unique")
+  @@index([attribute], name: "IDX_price_rule_attribute")
+  @@index([attribute, value], name: "IDX_price_rule_attribute_value")
+}
+
+model PriceList {
+  id          String          @id
+  title       String
+  description String
+  status      PriceListStatus @default(draft)
+  type        PriceListType   @default(sale)
+  starts_at   DateTime?
+  ends_at     DateTime?
+  rules_count Int?            @default(0)
+  metadata    Json?
+  created_at  DateTime        @default(now())
+  updated_at  DateTime        @updatedAt
+  deleted_at  DateTime?
+
+  prices           Price[]
+  price_list_rules PriceListRule[]
+
+  @@index([id, status, starts_at, ends_at], name: "IDX_price_list_active")
+}
+
+model PriceListRule {
+  id         String    @id
+  attribute  String
+  value      Json?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  price_list_id String
+  price_list    PriceList @relation(fields: [price_list_id], references: [id])
+
+  @@index([price_list_id], name: "IDX_price_list_rule_price_list_id")
+  @@index([attribute], name: "IDX_price_list_rule_attribute")
+  // value 필드에 GIN 인덱스가 필요할 경우 마이그레이션 SQL에서 추가 필요
+}
+
+model PricePreference {
+  id               String    @id
+  attribute        String
+  value            String?
+  is_tax_inclusive Boolean   @default(false)
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+  deleted_at       DateTime?
+
+  @@unique([attribute, value], name: "IDX_price_preference_attribute_value")
+}
