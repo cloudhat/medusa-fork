@@ -10,14 +10,14 @@
 
 | 메서드 | 경로 | 워크플로우 |
 |--------|------|-----------|
-| `POST` | `/store/carts` | `createCartWorkflow` |
-| `POST` | `/store/carts/:id/line-items` | `addToCartWorkflow` |
-| `PUT` | `/store/carts/:id/line-items/:line_id` | `updateLineItemInCartWorkflow` |
-| `DELETE` | `/store/carts/:id/line-items/:line_id` | `deleteLineItemsWorkflow` |
+| `POST` | `/store/carts` | [createCartWorkflow](./flow-createCartWorkflow.md) |
+| `POST` | `/store/carts/:id/line-items` | [addToCartWorkflow](./flow-addToCartWorkflow.md) |
+| `PUT` | `/store/carts/:id/line-items/:line_id` | [updateLineItemInCartWorkflow](./flow-updateLineItemInCartWorkflow.md) |
+| `DELETE` | `/store/carts/:id/line-items/:line_id` | [deleteLineItemsWorkflow](./flow-deleteLineItemsWorkflow.md) |
 
 ---
 
-## createCartWorkflow
+## [createCartWorkflow](./flow-createCartWorkflow.md)
 
 **파일**: [packages/core/core-flows/src/cart/workflows/create-carts.ts](../../../../packages/core/core-flows/src/cart/workflows/create-carts.ts)
 
@@ -61,7 +61,7 @@
 
 ---
 
-## addToCartWorkflow
+## [addToCartWorkflow](./flow-addToCartWorkflow.md)
 
 **파일**: [packages/core/core-flows/src/cart/workflows/add-to-cart.ts](../../../../packages/core/core-flows/src/cart/workflows/add-to-cart.ts)
 
@@ -86,7 +86,7 @@
 
 ---
 
-## refreshCartItemsWorkflow (공통 서브워크플로우)
+## [refreshCartItemsWorkflow](./flow-refreshCartItemsWorkflow.md) (공통 서브워크플로우)
 
 **파일**: [packages/core/core-flows/src/cart/workflows/refresh-cart-items.ts](../../../../packages/core/core-flows/src/cart/workflows/refresh-cart-items.ts)
 

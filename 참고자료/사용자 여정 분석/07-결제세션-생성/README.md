@@ -10,12 +10,12 @@
 
 | 메서드 | 경로 | 워크플로우 |
 |--------|------|-----------|
-| `POST` | `/store/payment-collections` | `createPaymentCollectionForCartWorkflow` |
-| `POST` | `/store/payment-collections/:id/payment-sessions` | `createPaymentSessionsWorkflow` |
+| `POST` | `/store/payment-collections` | [createPaymentCollectionForCartWorkflow](./flow-createPaymentCollectionForCartWorkflow.md) |
+| `POST` | `/store/payment-collections/:id/payment-sessions` | [createPaymentSessionsWorkflow](./flow-createPaymentSessionsWorkflow.md) |
 
 ---
 
-## createPaymentCollectionForCartWorkflow
+## [createPaymentCollectionForCartWorkflow](./flow-createPaymentCollectionForCartWorkflow.md)
 
 **파일**: [packages/core/core-flows/src/cart/workflows/create-payment-collection-for-cart.ts](../../../../packages/core/core-flows/src/cart/workflows/create-payment-collection-for-cart.ts)
 
@@ -34,7 +34,7 @@ PaymentCollection은 장바구니당 1개다. API 핸들러에서 이미 존재�
 
 ---
 
-## createPaymentSessionsWorkflow
+## [createPaymentSessionsWorkflow](./flow-createPaymentSessionsWorkflow.md)
 
 **파일**: [packages/core/core-flows/src/payment-collection/workflows/create-payment-session.ts](../../../../packages/core/core-flows/src/payment-collection/workflows/create-payment-session.ts)
 

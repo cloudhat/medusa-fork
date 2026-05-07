@@ -10,7 +10,7 @@
 
 | 메서드 | 경로 | 워크플로우 |
 |--------|------|-----------|
-| `POST` | `/store/carts/:id/complete` | `completeCartWorkflow` |
+| `POST` | `/store/carts/:id/complete` | [completeCartWorkflow](./flow-completeCartWorkflow.md) |
 
 **파일**: [packages/medusa/src/api/store/carts/[id]/complete/route.ts](../../../../packages/medusa/src/api/store/carts/%5Bid%5D/complete/route.ts)
 
@@ -18,7 +18,7 @@ API 핸들러가 `Modules.WORKFLOW_ENGINE`을 통해 워크플로우를 실행�
 
 ---
 
-## completeCartWorkflow 전체 Step 순서
+## [completeCartWorkflow](./flow-completeCartWorkflow.md) 전체 Step 순서
 
 **파일**: [packages/core/core-flows/src/cart/workflows/complete-cart.ts](../../../../packages/core/core-flows/src/cart/workflows/complete-cart.ts)
 

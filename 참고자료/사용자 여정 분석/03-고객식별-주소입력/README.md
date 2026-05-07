@@ -10,16 +10,16 @@
 
 | 메서드 | 경로 | 워크플로우 |
 |--------|------|-----------|
-| `POST` | `/store/customers` | `createCustomerWorkflow` |
+| `POST` | `/store/customers` | [createCustomerWorkflow](./flow-createCustomerWorkflow.md) |
 | `POST` | `/auth/customer/emailpass` | 인증 (Auth 모듈) |
 | `GET` | `/store/carts/:id` | 없음 (Query 직접 조회) |
-| `POST` | `/store/carts/:id` | `updateCartWorkflow` |
+| `POST` | `/store/carts/:id` | [updateCartWorkflow](./flow-updateCartWorkflow.md) |
 
 주소 입력과 고객 연결은 모두 `POST /store/carts/:id` → `updateCartWorkflow`를 통해 처리된다.
 
 ---
 
-## updateCartWorkflow
+## [updateCartWorkflow](./flow-updateCartWorkflow.md)
 
 **파일**: [packages/core/core-flows/src/cart/workflows/update-cart.ts](../../../../packages/core/core-flows/src/cart/workflows/update-cart.ts)
 

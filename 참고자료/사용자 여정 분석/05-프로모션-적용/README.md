@@ -10,12 +10,12 @@
 
 | 메서드 | 경로 | 워크플로우 |
 |--------|------|-----------|
-| `POST` | `/store/carts/:id/promotions` | `updateCartPromotionsWorkflow` (`action: ADD`) |
-| `DELETE` | `/store/carts/:id/promotions` | `updateCartPromotionsWorkflow` (`action: REMOVE`) |
+| `POST` | `/store/carts/:id/promotions` | [updateCartPromotionsWorkflow](./flow-updateCartPromotionsWorkflow.md) (`action: ADD`) |
+| `DELETE` | `/store/carts/:id/promotions` | [updateCartPromotionsWorkflow](./flow-updateCartPromotionsWorkflow.md) (`action: REMOVE`) |
 
 ---
 
-## updateCartPromotionsWorkflow
+## [updateCartPromotionsWorkflow](./flow-updateCartPromotionsWorkflow.md)
 
 **파일**: [packages/core/core-flows/src/cart/workflows/update-cart-promotions.ts](../../../../packages/core/core-flows/src/cart/workflows/update-cart-promotions.ts)
 

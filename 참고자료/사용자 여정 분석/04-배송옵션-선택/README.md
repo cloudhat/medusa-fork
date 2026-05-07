@@ -10,12 +10,12 @@
 
 | 메서드 | 경로 | 워크플로우 |
 |--------|------|-----------|
-| `GET` | `/store/shipping-options` | `listShippingOptionsForCartWorkflow` |
-| `POST` | `/store/carts/:id/shipping-methods` | `addShippingMethodToCartWorkflow` |
+| `GET` | `/store/shipping-options` | [listShippingOptionsForCartWorkflow](./flow-listShippingOptionsForCartWorkflow.md) |
+| `POST` | `/store/carts/:id/shipping-methods` | [addShippingMethodToCartWorkflow](./flow-addShippingMethodToCartWorkflow.md) |
 
 ---
 
-## listShippingOptionsForCartWorkflow (목록 조회)
+## [listShippingOptionsForCartWorkflow](./flow-listShippingOptionsForCartWorkflow.md) (목록 조회)
 
 **파일**: [packages/core/core-flows/src/cart/workflows/list-shipping-options-for-cart.ts](../../../../packages/core/core-flows/src/cart/workflows/list-shipping-options-for-cart.ts)
 
@@ -38,7 +38,7 @@
 
 ---
 
-## addShippingMethodToCartWorkflow (배송 방법 선택)
+## [addShippingMethodToCartWorkflow](./flow-addShippingMethodToCartWorkflow.md) (배송 방법 선택)
 
 **파일**: [packages/core/core-flows/src/cart/workflows/add-shipping-method-to-cart.ts](../../../../packages/core/core-flows/src/cart/workflows/add-shipping-method-to-cart.ts)
 

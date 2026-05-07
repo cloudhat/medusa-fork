@@ -10,11 +10,11 @@
 
 | 메서드 | 경로 | 워크플로우 |
 |--------|------|-----------|
-| `POST` | `/admin/orders/:id/fulfillments/:fulfillment_id/mark-as-delivered` | `markOrderFulfillmentAsDeliveredWorkflow` |
+| `POST` | `/admin/orders/:id/fulfillments/:fulfillment_id/mark-as-delivered` | [markOrderFulfillmentAsDeliveredWorkflow](./flow-markOrderFulfillmentAsDeliveredWorkflow.md) |
 
 ---
 
-## markOrderFulfillmentAsDeliveredWorkflow
+## [markOrderFulfillmentAsDeliveredWorkflow](./flow-markOrderFulfillmentAsDeliveredWorkflow.md)
 
 **파일**: [packages/core/core-flows/src/order/workflows/mark-order-fulfillment-as-delivered.ts](../../../../packages/core/core-flows/src/order/workflows/mark-order-fulfillment-as-delivered.ts)
 
@@ -31,7 +31,7 @@
 | 7 | `registerOrderDeliveryStep` | `ORDER` | 주문 이력에 delivery 등록 |
 | 8 | `emitEventStep` | `EVENT_BUS` | `order.delivery_created` 이벤트 |
 
-### markFulfillmentAsDeliveredWorkflow 내부
+### [markFulfillmentAsDeliveredWorkflow](./flow-markFulfillmentAsDeliveredWorkflow.md) 내부
 
 **파일**: [packages/core/core-flows/src/fulfillment/workflows/mark-fulfillment-as-delivered.ts](../../../../packages/core/core-flows/src/fulfillment/workflows/mark-fulfillment-as-delivered.ts)
 
