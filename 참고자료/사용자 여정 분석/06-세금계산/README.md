@@ -10,11 +10,11 @@
 
 세금 계산은 명시적 API 호출 없이 `refreshCartItemsWorkflow` 내에서 자동으로 수행된다.
 
-| 상황 | 호출되는 세금 워크플로우 |
-|------|------------------------|
-| `force_refresh=true` (아이템 전체 재계산) | `updateTaxLinesWorkflow` |
-| 특정 아이템·배송 방법만 갱신 | `upsertTaxLinesWorkflow` |
-| 명시적 세금 계산 요청 | `POST /store/carts/:id/taxes` → `updateTaxLinesWorkflow` |
+| 상황                                      | 호출되는 세금 워크플로우                                 |
+| ----------------------------------------- | -------------------------------------------------------- |
+| `force_refresh=true` (아이템 전체 재계산) | `updateTaxLinesWorkflow`                                 |
+| 특정 아이템·배송 방법만 갱신              | `upsertTaxLinesWorkflow`                                 |
+| 명시적 세금 계산 요청                     | `POST /store/carts/:id/taxes` → `updateTaxLinesWorkflow` |
 
 ---
 
@@ -26,15 +26,15 @@
 
 ### Step 실행 순서
 
-| 순번 | Step | 모듈 | 주요 동작 |
-|------|------|------|----------|
-| 1 | (조건) `useQueryGraphStep` | Query | cart 객체가 없을 때 cart_id로 장바구니 조회 |
-| 2 | `validateCartStep` | — | 완료 여부 검증 |
-| 3 | `acquireLockStep` | `LOCKING` | cart_id 락 (validateCartStep 이후에 획득) |
-| 4 | `getItemTaxLinesStep` | `TAX` | 세금 라인 계산 |
-| 5 | `getTranslatedTaxLinesStep` | — | locale 번역 |
-| 6 | `setTaxLinesForItemsStep` | `CART` | 기존 세금 라인 전체 교체 (`setLineItemTaxLines`, `setShippingMethodTaxLines`) |
-| 7 | `releaseLockStep` | `LOCKING` | 락 해제 |
+| 순번 | Step                        | 모듈      | 주요 동작                                                                     |
+| ---- | --------------------------- | --------- | ----------------------------------------------------------------------------- |
+| 1    | (조건) `useQueryGraphStep`  | Query     | cart 객체가 없을 때 cart_id로 장바구니 조회                                   |
+| 2    | `validateCartStep`          | —         | 완료 여부 검증                                                                |
+| 3    | `acquireLockStep`           | `LOCKING` | cart_id 락 (validateCartStep 이후에 획득)                                     |
+| 4    | `getItemTaxLinesStep`       | `TAX`     | 세금 라인 계산                                                                |
+| 5    | `getTranslatedTaxLinesStep` | —         | locale 번역                                                                   |
+| 6    | `setTaxLinesForItemsStep`   | `CART`    | 기존 세금 라인 전체 교체 (`setLineItemTaxLines`, `setShippingMethodTaxLines`) |
+| 7    | `releaseLockStep`           | `LOCKING` | 락 해제                                                                       |
 
 ---
 
@@ -75,12 +75,12 @@ Step 5에서 `setTaxLinesForItemsStep` 대신 `upsertTaxLinesForItemsStep`을 �
 
 **파일**: [packages/modules/tax/src/models/](../../../../packages/modules/tax/src/models/)
 
-| 엔티티 | 주요 필드 |
-|--------|----------|
-| `TaxRegion` | `country_code`, `province_code`, `provider` |
-| `TaxRate` | `rate` (float), `code`, `name`, `is_default`, `is_combinable` |
+| 엔티티        | 주요 필드                                                          |
+| ------------- | ------------------------------------------------------------------ |
+| `TaxRegion`   | `country_code`, `province_code`, `provider`                        |
+| `TaxRate`     | `rate` (float), `code`, `name`, `is_default`, `is_combinable`      |
 | `TaxRateRule` | `reference` (product/product_type/shipping_option), `reference_id` |
-| `TaxProvider` | 등록된 세금 계산 프로바이더 ID |
+| `TaxProvider` | 등록된 세금 계산 프로바이더 ID                                     |
 
 ### TaxRegion 계층
 
@@ -93,11 +93,11 @@ TaxRegion (parent_id=null, country_code="kr")   ← 국가 수준
 
 ## 개입 모듈
 
-| 모듈 | 역할 |
-|------|------|
-| `TAX` | 세금 라인 계산 (TaxRegion + TaxRate 매칭, 프로바이더 위임) |
-| `CART` | 계산된 세금 라인 저장 (`LineItemTaxLine`, `ShippingMethodTaxLine`) |
-| `LOCKING` | 동시 수정 방지 |
+| 모듈      | 역할                                                               |
+| --------- | ------------------------------------------------------------------ |
+| `TAX`     | 세금 라인 계산 (TaxRegion + TaxRate 매칭, 프로바이더 위임)         |
+| `CART`    | 계산된 세금 라인 저장 (`LineItemTaxLine`, `ShippingMethodTaxLine`) |
+| `LOCKING` | 동시 수정 방지                                                     |
 
 ---
 
