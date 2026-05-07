@@ -4,9 +4,15 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
+/// 주문 상태
+/// - pending: 결제 완료 후 처리 대기 중 (기본 상태).
+/// - completed: 모든 처리(배송·배달 등) 완료.
+/// - draft: 관리자가 수동으로 생성 중인 드래프트 주문.
+/// - archived: 보관 처리된 완료 주문.
+/// - canceled: 취소된 주문.
+/// - requires_action: 추가 작업(결제 오류 등)이 필요한 상태.
 enum OrderStatus {
   pending
   completed
@@ -16,6 +22,13 @@ enum OrderStatus {
   requires_action
 }
 
+/// 주문 변경 상태
+/// - pending_to_confirm: 변경 대기 중 (기본 상태).
+/// - in_review: 검토 중.
+/// - requested: 고객 또는 관리자에게 전달됨.
+/// - confirmed: 확정. 이 시점에 Order.version 증가.
+/// - declined: 거절됨.
+/// - canceled: 취소됨.
 enum OrderChangeStatus {
   confirmed
   declined
@@ -25,6 +38,12 @@ enum OrderChangeStatus {
   pending_to_confirm
 }
 
+/// 반품 상태
+/// - open: 반품 초기화됨 (아직 요청 전).
+/// - requested: 반품 요청 접수됨.
+/// - received: 모든 반품 수량 입고 완료.
+/// - partially_received: 일부 수량만 입고됨.
+/// - canceled: 반품 취소.
 enum ReturnStatus {
   open
   requested
@@ -33,11 +52,19 @@ enum ReturnStatus {
   canceled
 }
 
+/// 클레임 유형
+/// - replace: 결함·잘못 배송된 상품을 새 상품으로 교체.
+/// - refund: 환불 처리.
 enum ClaimType {
   replace
   refund
 }
 
+/// 클레임 사유
+/// - missing_item: 상품 누락.
+/// - wrong_item: 잘못된 상품 배송.
+/// - production_failure: 생산 불량.
+/// - other: 기타 사유.
 enum ClaimReason {
   missing_item
   wrong_item
@@ -49,23 +76,53 @@ enum ClaimReason {
 // 공유 주소
 // ────────────────────────────────────────────────────
 
+/// 주문 주소(OrderAddress). 주문의 배송지 또는 청구지 주소 스냅샷.
+///
+/// 주문 생성 시 Cart 주소를 복사하여 생성. 이후 카탈로그 주소 변경과 무관하게 주문 시점 주소가 보존된다.
+/// Order.shipping_address_id / billing_address_id 두 FK에서 동일 테이블을 참조.
 model OrderAddress {
-  id           String    @id
-  customer_id  String?
-  company      String?
-  first_name   String?
-  last_name    String?
-  address_1    String?
-  address_2    String?
-  city         String?
+  /// 주소 고유 ID
+  id String @id
+
+  /// 연결된 고객 ID. Remote Link → Customer 모듈. null 허용
+  customer_id String?
+
+  /// 배송 수신처 회사명. null 허용
+  company String?
+
+  /// 수신자 이름. null 허용
+  first_name String?
+
+  /// 수신자 성. null 허용
+  last_name String?
+
+  /// 도로명 주소 1행. null 허용
+  address_1 String?
+
+  /// 도로명 주소 2행. null 허용
+  address_2 String?
+
+  /// 도시명. null 허용
+  city String?
+
+  /// ISO 3166-1 alpha-2 국가 코드. null 허용
   country_code String?
-  province     String?
-  postal_code  String?
-  phone        String?
-  metadata     Json?
-  created_at   DateTime  @default(now())
-  updated_at   DateTime  @updatedAt
-  deleted_at   DateTime?
+
+  /// 주/도 코드. null 허용
+  province String?
+
+  /// 우편번호. null 허용
+  postal_code String?
+
+  /// 배송지 연락처. null 허용
+  phone String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
 
   shipping_orders Order[] @relation("OrderShippingAddress")
   billing_orders  Order[] @relation("OrderBillingAddress")
@@ -77,28 +134,78 @@ model OrderAddress {
 // Order
 // ────────────────────────────────────────────────────
 
+/// 주문(Order). 고객의 구매 거래를 나타내는 핵심 레코드.
+///
+/// 버전 관리(Versioning):
+///   - version은 OrderChange 확정 시마다 증가한다.
+///   - OrderItem, OrderShipping, OrderSummary 모두 version 필드를 가지며,
+///     동일 version끼리 하나의 주문 상태 스냅샷을 구성한다.
+///
+/// 라이프사이클:
+///   - Cart 완료(체크아웃) 시 생성. status = pending.
+///   - is_draft_order = true이면 관리자가 어드민에서 수동으로 생성한 주문.
+///   - 처리 완료 시 status = completed → archived.
+///   - 취소 시 canceled_at 기록 + status = canceled.
+///
+/// 모듈 연결 (Remote Link, 이 스키마에 FK 없음):
+///   - Region.id (region_id), Customer.id (customer_id), SalesChannel.id (sales_channel_id)
+///   - PaymentCollection (payment 모듈 Remote Link)
+///   - Fulfillment (fulfillment 모듈 Remote Link)
 model Order {
-  id                String      @id
-  display_id        Int         @default(autoincrement())
-  custom_display_id String?
-  region_id         String?
-  customer_id       String?
-  version           Int         @default(1)
-  sales_channel_id  String?
-  status            OrderStatus @default(pending)
-  is_draft_order    Boolean     @default(false)
-  email             String?
-  currency_code     String
-  locale            String?
-  no_notification   Boolean?
-  metadata          Json?
-  canceled_at       DateTime?
-  created_at        DateTime    @default(now())
-  updated_at        DateTime    @updatedAt
-  deleted_at        DateTime?
+  /// 주문 고유 ID (prefix: order_)
+  id String @id
 
+  /// 고객에게 표시되는 주문 번호. 자동 증가 정수. 예: 1001
+  display_id Int @default(autoincrement())
+
+  /// 외부 시스템 주문 번호. null이면 미등록. 전체에서 유일
+  custom_display_id String?
+
+  /// 리전 ID. Remote Link → Region 모듈. null 허용
+  region_id String?
+
+  /// 고객 ID. Remote Link → Customer 모듈. null 허용
+  customer_id String?
+
+  /// 현재 주문 버전. OrderChange 확정 시마다 1 증가
+  version Int @default(1)
+
+  /// 판매 채널 ID. Remote Link → SalesChannel 모듈. null 허용
+  sales_channel_id String?
+
+  /// 주문 상태
+  status OrderStatus @default(pending)
+
+  /// true이면 관리자가 어드민에서 수동 생성한 드래프트 주문
+  is_draft_order Boolean @default(false)
+
+  /// 비회원 주문 또는 주문 시점 이메일. null 허용
+  email String?
+
+  /// 결제 통화 코드. 예: "usd", "krw"
+  currency_code String
+
+  /// BCP 47 언어 태그. null 허용
+  locale String?
+
+  /// true이면 이 주문에 대한 고객 알림 비활성화. null이면 기본 동작
+  no_notification Boolean?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  /// 취소 시각. null이면 취소 전
+  canceled_at DateTime?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 배송지 주소 ID
   shipping_address_id String?
-  billing_address_id  String?
+
+  /// 청구지 주소 ID
+  billing_address_id String?
 
   shipping_address OrderAddress? @relation("OrderShippingAddress", fields: [shipping_address_id], references: [id])
   billing_address  OrderAddress? @relation("OrderBillingAddress", fields: [billing_address_id], references: [id])
@@ -123,14 +230,28 @@ model Order {
   @@index([deleted_at], name: "IDX_order_deleted_at")
 }
 
+/// 주문 요약(OrderSummary). 특정 주문 버전의 금액 합계 스냅샷.
+///
+/// 버전 이력:
+///   - 주문 생성 시 version=1 레코드가 생성됨.
+///   - OrderChange 확정 시마다 새 version 레코드가 추가됨 (이전 버전 유지).
+///   - totals 필드에 해당 버전의 전체 금액 정보를 JSON으로 저장.
+///   - (order_id, version) 인덱스로 특정 버전의 summary를 빠르게 조회.
 model OrderSummary {
-  id         String   @id
-  version    Int      @default(1)
-  totals     Json
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  /// 요약 고유 ID (prefix: ordsum_)
+  id String @id
+
+  /// 이 요약이 대응하는 주문 버전
+  version Int @default(1)
+
+  /// 해당 버전의 전체 금액 스냅샷. JSON으로 item_total, shipping_total, tax_total 등 포함
+  totals Json
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
   deleted_at DateTime?
 
+  /// 소속 주문 ID
   order_id String
   order    Order  @relation(fields: [order_id], references: [id])
 
@@ -143,44 +264,110 @@ model OrderSummary {
 // Line Item (공유 데이터)
 // ────────────────────────────────────────────────────
 
+/// 주문 라인 아이템(OrderLineItem). 주문에 포함된 상품 정보의 불변 스냅샷.
+///
+/// 역할 분리:
+///   - OrderLineItem: 상품 카탈로그 데이터를 비정규화한 스냅샷. 생성 후 변경 없음.
+///   - OrderItem: 해당 스냅샷을 참조하면서 수량 추적·버전 관리를 담당.
+///
+/// 라이프사이클:
+///   - 주문 생성 시 Cart.LineItem 데이터를 복사하여 생성.
+///   - 상품 카탈로그가 변경되어도 이 스냅샷은 유지됨 (주문 시점 데이터 보존).
+///
+/// 모듈 연결 (Remote Link, text 컬럼):
+///   - variant_id → Product 모듈, product_id, product_type_id → Product 모듈
 model OrderLineItem {
-  id                    String    @id
-  title                 String
-  subtitle              String?
-  thumbnail             String?
-  variant_id            String?
-  product_id            String?
-  product_title         String?
-  product_description   String?
-  product_subtitle      String?
-  product_type          String?
-  product_type_id       String?
-  product_collection    String?
-  product_handle        String?
-  variant_sku           String?
-  variant_barcode       String?
-  variant_title         String?
+  /// 라인 아이템 고유 ID (prefix: ordli_)
+  id String @id
+
+  /// 상품 표시 이름 스냅샷
+  title String
+
+  /// 상품 부제목 스냅샷. null 허용
+  subtitle String?
+
+  /// 썸네일 이미지 URL 스냅샷. null 허용
+  thumbnail String?
+
+  /// 상품 변형 ID. Remote Link → Product 모듈. null 허용
+  variant_id String?
+
+  /// 상품 ID. Remote Link → Product 모듈. null 허용
+  product_id String?
+
+  /// 상품 이름 스냅샷. null 허용
+  product_title String?
+
+  /// 상품 설명 스냅샷. null 허용
+  product_description String?
+
+  /// 상품 부제목 스냅샷. null 허용
+  product_subtitle String?
+
+  /// 상품 유형명 스냅샷. null 허용
+  product_type String?
+
+  /// 상품 유형 ID 스냅샷. null 허용
+  product_type_id String?
+
+  /// 상품 컬렉션명 스냅샷. null 허용
+  product_collection String?
+
+  /// 상품 URL 슬러그 스냅샷. null 허용
+  product_handle String?
+
+  /// 변형 SKU 스냅샷. null 허용
+  variant_sku String?
+
+  /// 변형 바코드 스냅샷. null 허용
+  variant_barcode String?
+
+  /// 변형 표시 이름 스냅샷. null 허용
+  variant_title String?
+
+  /// 변형 옵션 값 스냅샷. JSON 형태. null 허용
   variant_option_values Json?
-  requires_shipping     Boolean   @default(true)
-  is_giftcard           Boolean   @default(false)
-  is_discountable       Boolean   @default(true)
-  is_tax_inclusive      Boolean   @default(false)
-  compare_at_unit_price     Decimal?
+
+  /// true이면 배송이 필요한 실물 상품
+  requires_shipping Boolean @default(true)
+
+  /// true이면 기프트카드 상품
+  is_giftcard Boolean @default(false)
+
+  /// true이면 프로모션·할인 적용 가능
+  is_discountable Boolean @default(true)
+
+  /// true이면 단가에 세금이 이미 포함된 상태
+  is_tax_inclusive Boolean @default(false)
+
+  /// 정가(할인 전 표시 가격). null이면 할인 표시 없음
+  compare_at_unit_price Decimal?
+
+  /// compare_at_unit_price의 정밀도 보존용 원본 JSON
   raw_compare_at_unit_price Json?
-  unit_price                Decimal?
-  raw_unit_price            Json?
-  is_custom_price       Boolean   @default(false)
-  metadata              Json?
-  created_at            DateTime  @default(now())
-  updated_at            DateTime  @updatedAt
-  deleted_at            DateTime?
+
+  /// 판매 단가. null 허용 (OrderItem에서 버전별로 관리)
+  unit_price Decimal?
+
+  /// unit_price의 정밀도 보존용 원본 JSON
+  raw_unit_price Json?
+
+  /// true이면 관리자가 수동으로 지정한 단가
+  is_custom_price Boolean @default(false)
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
 
   tax_lines   OrderLineItemTaxLine[]
   adjustments OrderLineItemAdjustment[]
 
-  order_items   OrderItem[]
-  return_items  ReturnItem[]
-  claim_items   OrderClaimItem[]
+  order_items    OrderItem[]
+  return_items   ReturnItem[]
+  claim_items    OrderClaimItem[]
   exchange_items OrderExchangeItem[]
 
   @@index([product_id], name: "IDX_order_line_item_product_id")
@@ -189,38 +376,78 @@ model OrderLineItem {
   @@index([deleted_at], name: "IDX_order_line_item_deleted_at")
 }
 
+/// 주문 라인 아이템 세금 라인(OrderLineItemTaxLine). 라인 아이템에 적용된 세율 스냅샷.
+///
+/// Cart의 세금 정보를 주문 생성 시 복사. rate는 Decimal로 정밀도 보존.
 model OrderLineItemTaxLine {
-  id          String   @id
-  description String?
-  tax_rate_id String?
-  code        String
-  rate        Decimal
-  raw_rate    Json
-  provider_id String?
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-  deleted_at  DateTime?
+  /// 세금 라인 고유 ID
+  id String @id
 
+  /// 세금 설명. null 허용
+  description String?
+
+  /// 적용된 세율 ID. Remote Link → Tax 모듈. null 허용
+  tax_rate_id String?
+
+  /// 세금 식별 코드. 예: "VAT"
+  code String
+
+  /// 세율 값 (소수). 예: 0.1 = 10%
+  rate Decimal
+
+  /// rate의 정밀도 보존용 원본 JSON
+  raw_rate Json
+
+  /// 세금 계산 공급자 ID. null 허용
+  provider_id String?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 라인 아이템 ID
   item_id String
   item    OrderLineItem @relation(fields: [item_id], references: [id])
 
   @@index([item_id], name: "IDX_order_line_item_tax_line_item_id")
 }
 
+/// 주문 라인 아이템 할인 조정(OrderLineItemAdjustment). 라인 아이템에 적용된 프로모션 할인 스냅샷.
+///
+/// Cart 할인 조정 정보를 주문 생성 시 복사. version 필드로 어떤 주문 버전의 조정인지 추적.
 model OrderLineItemAdjustment {
-  id               String    @id
-  version          Int       @default(1)
-  description      String?
-  promotion_id     String?
-  code             String?
-  amount           Decimal
-  raw_amount       Json
-  provider_id      String?
-  is_tax_inclusive Boolean   @default(false)
-  created_at       DateTime  @default(now())
-  updated_at       DateTime  @updatedAt
-  deleted_at       DateTime?
+  /// 조정 고유 ID
+  id String @id
 
+  /// 이 조정이 속하는 주문 버전
+  version Int @default(1)
+
+  /// 할인 설명. null 허용
+  description String?
+
+  /// 적용된 프로모션 ID. Remote Link → Promotion 모듈. null 허용
+  promotion_id String?
+
+  /// 적용된 프로모션 코드. null 허용
+  code String?
+
+  /// 할인 금액 (양수)
+  amount Decimal
+
+  /// amount의 정밀도 보존용 원본 JSON
+  raw_amount Json
+
+  /// 할인 공급자 ID. null 허용
+  provider_id String?
+
+  /// true이면 할인 금액에 세금이 포함된 상태
+  is_tax_inclusive Boolean @default(false)
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 라인 아이템 ID
   item_id String
   item    OrderLineItem @relation(fields: [item_id], references: [id])
 
@@ -231,37 +458,100 @@ model OrderLineItemAdjustment {
 // Order Item (버전별 수량 추적)
 // ────────────────────────────────────────────────────
 
+/// 주문 항목(OrderItem). OrderLineItem(스냅샷)과 Order를 연결하며 수량 상태를 버전별로 추적.
+///
+/// 역할:
+///   - OrderLineItem이 "상품 정보"를 보존하고, OrderItem이 "주문별 수량 상태"를 추적한다.
+///   - version 필드로 OrderChange 전후의 수량 상태 이력을 관리한다.
+///
+/// 수량 필드 의미:
+///   - quantity: 주문된 총 수량.
+///   - fulfilled_quantity: Fulfillment 생성된 수량.
+///   - shipped_quantity: 발송 완료된 수량.
+///   - delivered_quantity: 배달 완료된 수량.
+///   - return_requested_quantity: 반품 요청된 수량.
+///   - return_received_quantity: 반품 입고된 수량.
+///   - return_dismissed_quantity: 반품 거절된 수량.
+///   - written_off_quantity: 손실 처리된 수량.
 model OrderItem {
-  id                        String    @id
-  version                   Int       @default(1)
-  unit_price                Decimal?
-  raw_unit_price            Json?
-  compare_at_unit_price     Decimal?
-  raw_compare_at_unit_price Json?
-  quantity                  Decimal
-  raw_quantity              Json
-  fulfilled_quantity        Decimal   @default(0)
-  raw_fulfilled_quantity    Json?
-  delivered_quantity        Decimal   @default(0)
-  raw_delivered_quantity    Json?
-  shipped_quantity          Decimal   @default(0)
-  raw_shipped_quantity      Json?
-  return_requested_quantity Decimal   @default(0)
-  raw_return_requested_quantity Json?
-  return_received_quantity  Decimal   @default(0)
-  raw_return_received_quantity  Json?
-  return_dismissed_quantity Decimal   @default(0)
-  raw_return_dismissed_quantity Json?
-  written_off_quantity      Decimal   @default(0)
-  raw_written_off_quantity  Json?
-  metadata                  Json?
-  created_at                DateTime  @default(now())
-  updated_at                DateTime  @updatedAt
-  deleted_at                DateTime?
+  /// 주문 항목 고유 ID (prefix: orditem_)
+  id String @id
 
+  /// 이 항목이 속하는 주문 버전
+  version Int @default(1)
+
+  /// 이 버전의 판매 단가. null이면 OrderLineItem.unit_price 사용
+  unit_price Decimal?
+
+  /// unit_price의 정밀도 보존용 원본 JSON
+  raw_unit_price Json?
+
+  /// 이 버전의 정가 표시용 단가. null 허용
+  compare_at_unit_price Decimal?
+
+  /// compare_at_unit_price의 정밀도 보존용 원본 JSON
+  raw_compare_at_unit_price Json?
+
+  /// 주문된 총 수량
+  quantity Decimal
+
+  /// quantity의 정밀도 보존용 원본 JSON
+  raw_quantity Json
+
+  /// Fulfillment 생성된 수량
+  fulfilled_quantity Decimal @default(0)
+
+  /// fulfilled_quantity의 정밀도 보존용 원본 JSON
+  raw_fulfilled_quantity Json?
+
+  /// 배달 완료된 수량
+  delivered_quantity Decimal @default(0)
+
+  /// delivered_quantity의 정밀도 보존용 원본 JSON
+  raw_delivered_quantity Json?
+
+  /// 발송 완료된 수량
+  shipped_quantity Decimal @default(0)
+
+  /// shipped_quantity의 정밀도 보존용 원본 JSON
+  raw_shipped_quantity Json?
+
+  /// 반품 요청된 수량
+  return_requested_quantity Decimal @default(0)
+
+  /// return_requested_quantity의 정밀도 보존용 원본 JSON
+  raw_return_requested_quantity Json?
+
+  /// 반품 입고된 수량
+  return_received_quantity Decimal @default(0)
+
+  /// return_received_quantity의 정밀도 보존용 원본 JSON
+  raw_return_received_quantity Json?
+
+  /// 반품 거절된 수량 (반품 수령 후 불량 처리 등)
+  return_dismissed_quantity Decimal @default(0)
+
+  /// return_dismissed_quantity의 정밀도 보존용 원본 JSON
+  raw_return_dismissed_quantity Json?
+
+  /// 손실 처리(write-off)된 수량
+  written_off_quantity Decimal @default(0)
+
+  /// written_off_quantity의 정밀도 보존용 원본 JSON
+  raw_written_off_quantity Json?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 주문 ID
   order_id String
   order    Order  @relation(fields: [order_id], references: [id])
 
+  /// 연결된 라인 아이템 스냅샷 ID
   item_id String
   item    OrderLineItem @relation(fields: [item_id], references: [id])
 
@@ -275,40 +565,83 @@ model OrderItem {
 // Shipping Method
 // ────────────────────────────────────────────────────
 
+/// 주문 배송 방법 데이터(OrderShippingMethod). 배송 정보의 불변 스냅샷.
+///
+/// 역할 분리:
+///   - OrderShippingMethod: 배송 금액·옵션 정보를 저장하는 순수 데이터 레코드.
+///   - OrderShipping: 이 레코드를 Order/Return/Exchange/Claim과 연결하는 버전 관리 래퍼.
+///
+/// Cart.ShippingMethod와의 차이: is_custom_amount 필드 추가.
 model OrderShippingMethod {
-  id                 String    @id
-  name               String
-  description        Json?
-  amount             Decimal
-  raw_amount         Json
-  is_tax_inclusive   Boolean   @default(false)
-  is_custom_amount   Boolean   @default(false)
-  shipping_option_id String?
-  data               Json?
-  metadata           Json?
-  created_at         DateTime  @default(now())
-  updated_at         DateTime  @updatedAt
-  deleted_at         DateTime?
+  /// 배송 방법 데이터 고유 ID
+  id String @id
 
-  tax_lines   OrderShippingMethodTaxLine[]
-  adjustments OrderShippingMethodAdjustment[]
+  /// 배송 방법 표시 이름
+  name String
+
+  /// 배송 방법 설명. JSON 형식 (다국어 지원 등). null 허용
+  description Json?
+
+  /// 배송비
+  amount Decimal
+
+  /// amount의 정밀도 보존용 원본 JSON
+  raw_amount Json
+
+  /// true이면 배송비에 세금이 이미 포함된 상태
+  is_tax_inclusive Boolean @default(false)
+
+  /// true이면 관리자가 수동으로 지정한 배송비
+  is_custom_amount Boolean @default(false)
+
+  /// 선택된 배송 옵션 ID. Remote Link → Fulfillment 모듈. null 허용
+  shipping_option_id String?
+
+  /// 배송 공급자 부가 데이터. null 허용
+  data Json?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  tax_lines      OrderShippingMethodTaxLine[]
+  adjustments    OrderShippingMethodAdjustment[]
   order_shipping OrderShipping[]
 
   @@index([shipping_option_id], name: "IDX_order_shipping_method_shipping_option_id")
 }
 
+/// 주문 배송 세금 라인(OrderShippingMethodTaxLine). 배송비에 적용된 세율 스냅샷.
 model OrderShippingMethodTaxLine {
-  id                 String   @id
-  description        String?
-  tax_rate_id        String?
-  code               String
-  rate               Decimal
-  raw_rate           Json
-  provider_id        String?
-  created_at         DateTime @default(now())
-  updated_at         DateTime @updatedAt
-  deleted_at         DateTime?
+  /// 세금 라인 고유 ID
+  id String @id
 
+  /// 세금 설명. null 허용
+  description String?
+
+  /// 적용된 세율 ID. Remote Link → Tax 모듈. null 허용
+  tax_rate_id String?
+
+  /// 세금 식별 코드
+  code String
+
+  /// 세율 값 (소수)
+  rate Decimal
+
+  /// rate의 정밀도 보존용 원본 JSON
+  raw_rate Json
+
+  /// 세금 계산 공급자 ID. null 허용
+  provider_id String?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 배송 방법 데이터 ID
   shipping_method_id String
   shipping_method    OrderShippingMethod @relation(fields: [shipping_method_id], references: [id])
 
@@ -316,19 +649,37 @@ model OrderShippingMethodTaxLine {
   @@map("order_shipping_method_tax_line")
 }
 
+/// 주문 배송 할인 조정(OrderShippingMethodAdjustment). 배송비에 적용된 프로모션 할인 스냅샷.
 model OrderShippingMethodAdjustment {
-  id               String   @id
-  version          Int      @default(1)
-  description      String?
-  promotion_id     String?
-  code             String?
-  amount           Decimal
-  raw_amount       Json
-  provider_id      String?
-  created_at       DateTime @default(now())
-  updated_at       DateTime @updatedAt
-  deleted_at       DateTime?
+  /// 조정 고유 ID
+  id String @id
 
+  /// 이 조정이 속하는 주문 버전
+  version Int @default(1)
+
+  /// 할인 설명. null 허용
+  description String?
+
+  /// 적용된 프로모션 ID. Remote Link → Promotion 모듈. null 허용
+  promotion_id String?
+
+  /// 프로모션 코드. null 허용
+  code String?
+
+  /// 할인 금액
+  amount Decimal
+
+  /// amount의 정밀도 보존용 원본 JSON
+  raw_amount Json
+
+  /// 할인 공급자 ID. null 허용
+  provider_id String?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 배송 방법 데이터 ID
   shipping_method_id String
   shipping_method    OrderShippingMethod @relation(fields: [shipping_method_id], references: [id])
 
@@ -337,26 +688,40 @@ model OrderShippingMethodAdjustment {
   @@map("order_shipping_method_adjustment")
 }
 
-// OrderShipping: Order/Return/Exchange/Claim ↔ ShippingMethod 연결
+/// 주문 배송 연결(OrderShipping). OrderShippingMethod를 Order/Return/Exchange/Claim에 연결하는 버전 관리 래퍼.
+///
+/// 다중 소유 패턴:
+///   - order_id는 항상 필수. 어떤 주문에 속하는지 기록.
+///   - return_id / exchange_id / claim_id는 선택적. 반품·교환·클레임의 배송 방법이면 해당 ID 설정.
+///   - version으로 OrderChange 버전별 배송 방법 이력 추적.
 model OrderShipping {
-  id         String    @id
-  version    Int       @default(1)
+  /// 배송 연결 고유 ID (prefix: ordspmv_)
+  id String @id
+
+  /// 이 연결이 속하는 주문 버전
+  version Int @default(1)
+
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   deleted_at DateTime?
 
-  order_id   String
-  order      Order  @relation(fields: [order_id], references: [id])
+  /// 소속 주문 ID (항상 필수)
+  order_id String
+  order    Order  @relation(fields: [order_id], references: [id])
 
-  return_id  String?
-  return     Return?  @relation(fields: [return_id], references: [id])
+  /// 반품의 배송 방법인 경우 반품 ID. null이면 해당 없음
+  return_id String?
+  return    Return? @relation(fields: [return_id], references: [id])
 
+  /// 교환의 배송 방법인 경우 교환 ID. null이면 해당 없음
   exchange_id String?
   exchange    OrderExchange? @relation(fields: [exchange_id], references: [id])
 
-  claim_id    String?
-  claim       OrderClaim?    @relation(fields: [claim_id], references: [id])
+  /// 클레임의 배송 방법인 경우 클레임 ID. null이면 해당 없음
+  claim_id String?
+  claim    OrderClaim? @relation(fields: [claim_id], references: [id])
 
+  /// 연결된 배송 방법 데이터 ID
   shipping_method_id String
   shipping_method    OrderShippingMethod @relation(fields: [shipping_method_id], references: [id])
 
@@ -373,27 +738,51 @@ model OrderShipping {
 // Transaction / CreditLine
 // ────────────────────────────────────────────────────
 
+/// 주문 거래 내역(OrderTransaction). 주문과 연관된 금융 거래(결제·환불 등) 1건.
+///
+/// 역할:
+///   - Payment 모듈의 Capture/Refund 이벤트를 Order 모듈에서 추적하는 레코드.
+///   - reference/reference_id로 거래 출처(예: "capture", capture_id)를 식별.
+///   - Return/Exchange/Claim별 환불 거래를 추적하기 위해 해당 ID도 보유.
 model OrderTransaction {
-  id           String    @id
-  version      Int       @default(1)
-  amount       Decimal
-  raw_amount   Json
+  /// 거래 고유 ID
+  id String @id
+
+  /// 이 거래가 속하는 주문 버전
+  version Int @default(1)
+
+  /// 거래 금액. 양수=청구, 음수=환불
+  amount Decimal
+
+  /// amount의 정밀도 보존용 원본 JSON
+  raw_amount Json
+
+  /// 거래 통화 코드
   currency_code String
-  reference    String?
+
+  /// 거래 출처 유형. 예: "capture", "refund". null 허용
+  reference String?
+
+  /// 거래 출처 엔티티 ID. null 허용
   reference_id String?
-  created_at   DateTime  @default(now())
-  updated_at   DateTime  @updatedAt
-  deleted_at   DateTime?
 
-  order_id  String
-  order     Order  @relation(fields: [order_id], references: [id])
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
 
+  /// 소속 주문 ID
+  order_id String
+  order    Order  @relation(fields: [order_id], references: [id])
+
+  /// 반품 관련 거래인 경우 반품 ID. null 허용
   return_id String?
   return    Return? @relation(fields: [return_id], references: [id])
 
+  /// 교환 관련 거래인 경우 교환 ID. null 허용
   exchange_id String?
   exchange    OrderExchange? @relation(fields: [exchange_id], references: [id])
 
+  /// 클레임 관련 거래인 경우 클레임 ID. null 허용
   claim_id String?
   claim    OrderClaim? @relation(fields: [claim_id], references: [id])
 
@@ -407,18 +796,36 @@ model OrderTransaction {
   @@index([deleted_at], name: "IDX_order_transaction_deleted_at")
 }
 
+/// 주문 크레딧 라인(OrderCreditLine). 주문에 적용된 크레딧(기프트카드·포인트 등) 1건.
+///
+/// Cart.CreditLine과 동일한 목적이지만 주문 버전 추적이 추가된다.
 model OrderCreditLine {
-  id           String    @id
-  version      Int       @default(1)
-  reference    String?
-  reference_id String?
-  amount       Decimal
-  raw_amount   Json
-  metadata     Json?
-  created_at   DateTime  @default(now())
-  updated_at   DateTime  @updatedAt
-  deleted_at   DateTime?
+  /// 크레딧 라인 고유 ID
+  id String @id
 
+  /// 이 크레딧이 속하는 주문 버전
+  version Int @default(1)
+
+  /// 크레딧 출처 유형. 예: "gift_card". null 허용
+  reference String?
+
+  /// 크레딧 출처 엔티티 ID. null 허용
+  reference_id String?
+
+  /// 적용된 크레딧 금액
+  amount Decimal
+
+  /// amount의 정밀도 보존용 원본 JSON
+  raw_amount Json
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 주문 ID
   order_id String
   order    Order  @relation(fields: [order_id], references: [id])
 
@@ -431,32 +838,92 @@ model OrderCreditLine {
 // Order Change
 // ────────────────────────────────────────────────────
 
+/// 주문 변경(OrderChange). 주문 수정·반품·교환·클레임 요청을 나타내는 레코드.
+///
+/// 흐름:
+///   1. 반품·교환·클레임 요청 또는 주문 수정(edit) 시 생성.
+///   2. OrderChangeAction 목록을 통해 구체적인 변경 내용을 표현.
+///   3. 확정(confirmed_at 설정) 시:
+///      - Order.version 증가.
+///      - 새 OrderSummary 레코드 생성 (새 버전).
+///      - OrderChangeAction.applied = true.
+///   4. 거절(declined_at) 또는 취소(canceled_at) 시 변경 내용이 주문에 반영되지 않음.
+///
+/// change_type 값 예시: "return_request", "return_receive", "exchange", "claim", "edit".
+///
+/// 연관 엔티티:
+///   - return_id: 반품과 연관된 경우.
+///   - claim_id: 클레임과 연관된 경우.
+///   - exchange_id: 교환과 연관된 경우.
 model OrderChange {
-  id                    String            @id
-  return_id             String?
-  claim_id              String?
-  exchange_id           String?
-  version               Int
-  change_type           String?
-  description           String?
-  status                OrderChangeStatus? @default(pending_to_confirm)
-  internal_note         String?
-  created_by            String?
-  requested_by          String?
-  requested_at          DateTime?
-  confirmed_by          String?
-  confirmed_at          DateTime?
-  declined_by           String?
-  declined_reason       String?
-  metadata              Json?
-  declined_at           DateTime?
-  canceled_by           String?
-  canceled_at           DateTime?
-  carry_over_promotions Boolean?
-  created_at            DateTime          @default(now())
-  updated_at            DateTime          @updatedAt
-  deleted_at            DateTime?
+  /// 변경 고유 ID (prefix: ordch_)
+  id String @id
 
+  /// 연관된 반품 ID. null이면 반품과 무관
+  return_id String?
+
+  /// 연관된 클레임 ID. null이면 클레임과 무관
+  claim_id String?
+
+  /// 연관된 교환 ID. null이면 교환과 무관
+  exchange_id String?
+
+  /// 이 변경이 적용될 주문 버전
+  version Int
+
+  /// 변경 유형. 예: "return_request", "edit". null 허용
+  change_type String?
+
+  /// 변경 설명. null 허용
+  description String?
+
+  /// 변경 상태
+  status OrderChangeStatus? @default(pending_to_confirm)
+
+  /// 내부 메모 (관리자용). null 허용
+  internal_note String?
+
+  /// 변경을 생성한 사용자 ID. null 허용
+  created_by String?
+
+  /// 변경 요청을 보낸 사용자 ID. null 허용
+  requested_by String?
+
+  /// 요청 시각. null이면 미요청
+  requested_at DateTime?
+
+  /// 변경을 확정한 사용자 ID. null 허용
+  confirmed_by String?
+
+  /// 확정 시각. null이면 미확정
+  confirmed_at DateTime?
+
+  /// 변경을 거절한 사용자 ID. null 허용
+  declined_by String?
+
+  /// 거절 사유. null 허용
+  declined_reason String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  /// 거절 시각. null이면 미거절
+  declined_at DateTime?
+
+  /// 변경을 취소한 사용자 ID. null 허용
+  canceled_by String?
+
+  /// 취소 시각. null이면 미취소
+  canceled_at DateTime?
+
+  /// true이면 변경 확정 후에도 기존 프로모션 유지. null이면 기본 동작
+  carry_over_promotions Boolean?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 주문 ID
   order_id String
   order    Order  @relation(fields: [order_id], references: [id])
 
@@ -471,26 +938,69 @@ model OrderChange {
   @@index([deleted_at], name: "IDX_order_change_deleted_at")
 }
 
+/// 주문 변경 액션(OrderChangeAction). OrderChange를 구성하는 개별 변경 행동 1개.
+///
+/// 역할:
+///   - OrderChange가 "무엇을 변경하는가"를 action 필드의 ChangeActionType 값으로 표현.
+///   - applied = false: 아직 주문에 반영되지 않은 상태.
+///   - applied = true: OrderChange 확정 후 주문에 반영 완료.
+///   - ordering 필드로 여러 액션의 실행 순서를 결정.
+///
+/// 주요 action 값 예시:
+///   ITEM_ADD, ITEM_REMOVE, ITEM_UPDATE, RETURN_ITEM, RECEIVE_RETURN_ITEM,
+///   SHIPPING_ADD, SHIP_ITEM, DELIVER_ITEM, FULFILL_ITEM, WRITE_OFF_ITEM,
+///   PROMOTION_ADD, PROMOTION_REMOVE, CREDIT_LINE_ADD 등.
 model OrderChangeAction {
-  id            String    @id
-  order_id      String
-  return_id     String?
-  claim_id      String?
-  exchange_id   String?
-  ordering      Int       @default(autoincrement())
-  version       Int?
-  reference     String?
-  reference_id  String?
-  action        String
-  details       Json      @default("{}")
-  amount        Decimal?
-  raw_amount    Json?
-  internal_note String?
-  applied       Boolean   @default(false)
-  created_at    DateTime  @default(now())
-  updated_at    DateTime  @updatedAt
-  deleted_at    DateTime?
+  /// 액션 고유 ID (prefix: ordchact_)
+  id String @id
 
+  /// 소속 주문 ID (비정규화된 참조)
+  order_id String
+
+  /// 연관된 반품 ID. null 허용
+  return_id String?
+
+  /// 연관된 클레임 ID. null 허용
+  claim_id String?
+
+  /// 연관된 교환 ID. null 허용
+  exchange_id String?
+
+  /// 액션 실행 순서. 자동 증가
+  ordering Int @default(autoincrement())
+
+  /// 적용 대상 주문 버전. null 허용
+  version Int?
+
+  /// 참조 엔티티 유형. 예: "return", "claim". null 허용
+  reference String?
+
+  /// 참조 엔티티 ID. null 허용
+  reference_id String?
+
+  /// 액션 유형. ChangeActionType enum 값. 예: "ITEM_ADD", "RETURN_ITEM"
+  action String
+
+  /// 액션 파라미터 상세. 예: {item_id: "ordli_xxx", quantity: 2}
+  details Json @default("{}")
+
+  /// 이 액션에 연관된 금액. null 허용
+  amount Decimal?
+
+  /// amount의 정밀도 보존용 원본 JSON
+  raw_amount Json?
+
+  /// 내부 메모 (관리자용). null 허용
+  internal_note String?
+
+  /// true이면 OrderChange 확정 후 주문에 반영 완료
+  applied Boolean @default(false)
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 주문 변경 ID. null이면 OrderChange 없이 직접 적용된 액션
   order_change_id String?
   order_change    OrderChange? @relation(fields: [order_change_id], references: [id])
 
@@ -507,16 +1017,34 @@ model OrderChangeAction {
 // Return
 // ────────────────────────────────────────────────────
 
+/// 반품 사유(ReturnReason). 반품 시 선택할 수 있는 사유 마스터 데이터.
+///
+/// 계층 구조:
+///   - parent_return_reason_id가 null이면 최상위 사유.
+///   - 하위 사유를 두어 세분화 가능. 예: "상품 문제" > "불량품", "파손"
+///
+/// ReturnItem.reason_id에서 참조. label은 다국어 지원 대상.
 model ReturnReason {
-  id          String    @id
-  value       String
-  label       String
-  description String?
-  metadata    Json?
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
-  deleted_at  DateTime?
+  /// 반품 사유 고유 ID
+  id String @id
 
+  /// 코드 식별자. 예: "defective", "wrong_item"
+  value String
+
+  /// 표시용 이름 (다국어). 예: "상품 불량", "잘못된 상품"
+  label String
+
+  /// 사유 설명 (다국어). null 허용
+  description String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 상위 반품 사유 ID. null이면 최상위 사유
   parent_return_reason_id String?
   parent_return_reason    ReturnReason?  @relation("ReturnReasonHierarchy", fields: [parent_return_reason_id], references: [id])
   return_reason_children  ReturnReason[] @relation("ReturnReasonHierarchy")
@@ -528,30 +1056,71 @@ model ReturnReason {
   @@index([deleted_at], name: "IDX_return_reason_deleted_at")
 }
 
+/// 반품(Return). 고객이 상품을 반납하는 1건의 반품 처리.
+///
+/// 라이프사이클:
+///   1. 고객 반품 요청 → OrderChange(change_type="return_request") 생성과 동시에 Return 생성.
+///   2. 요청 접수: status = requested.
+///   3. 상품 입고: ReturnItem.received_quantity 증가. 일부 입고 시 partially_received.
+///   4. 전량 입고: received_at 기록 + status = received.
+///   5. 취소: canceled_at 기록 + status = canceled.
+///
+/// 교환·클레임과의 관계:
+///   - Exchange가 반납 처리를 포함할 때 exchange_id FK를 통해 Return이 연결됨.
+///   - Claim이 반납 처리를 포함할 때 claim_id FK를 통해 Return이 연결됨.
 model Return {
-  id             String       @id
-  order_version  Int
-  display_id     Int          @default(autoincrement())
-  status         ReturnStatus @default(open)
-  location_id    String?
-  no_notification Boolean?
-  refund_amount  Decimal?
-  raw_refund_amount Json?
-  created_by     String?
-  metadata       Json?
-  requested_at   DateTime?
-  received_at    DateTime?
-  canceled_at    DateTime?
-  created_at     DateTime     @default(now())
-  updated_at     DateTime     @updatedAt
-  deleted_at     DateTime?
+  /// 반품 고유 ID (prefix: return_)
+  id String @id
 
+  /// 반품 생성 시점의 주문 버전
+  order_version Int
+
+  /// 고객에게 표시되는 반품 번호. 자동 증가 정수
+  display_id Int @default(autoincrement())
+
+  /// 반품 상태
+  status ReturnStatus @default(open)
+
+  /// 반품 입고 창고 ID. Remote Link → StockLocation 모듈. null 허용
+  location_id String?
+
+  /// true이면 고객 알림 비활성화. null이면 기본 동작
+  no_notification Boolean?
+
+  /// 환불 예정 금액. null이면 미결정
+  refund_amount Decimal?
+
+  /// refund_amount의 정밀도 보존용 원본 JSON
+  raw_refund_amount Json?
+
+  /// 반품을 생성한 사용자 ID. null 허용
+  created_by String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  /// 고객 반품 요청 시각. null이면 아직 요청 전
+  requested_at DateTime?
+
+  /// 전량 입고 완료 시각. null이면 미완료
+  received_at DateTime?
+
+  /// 반품 취소 시각. null이면 취소 전
+  canceled_at DateTime?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 주문 ID
   order_id String
   order    Order  @relation(fields: [order_id], references: [id])
 
+  /// 이 반품이 교환의 반납 파트인 경우 교환 ID. null 허용
   exchange_id String?
   exchange    OrderExchange? @relation("ReturnExchange", fields: [exchange_id], references: [id])
 
+  /// 이 반품이 클레임의 반납 파트인 경우 클레임 ID. null 허용
   claim_id String?
   claim    OrderClaim? @relation("ReturnClaim", fields: [claim_id], references: [id])
 
@@ -566,26 +1135,53 @@ model Return {
   @@index([deleted_at], name: "IDX_return_deleted_at")
 }
 
+/// 반품 항목(ReturnItem). 반품에서 반납할 특정 상품과 수량.
+///
+/// 수량 추적:
+///   - quantity: 반품 요청된 수량.
+///   - received_quantity: 실제 입고된 수량. 전량 입고 시 quantity와 동일.
+///   - damaged_quantity: 파손 상태로 입고된 수량. received_quantity의 일부.
 model ReturnItem {
-  id                String    @id
-  quantity          Decimal
-  raw_quantity      Json
-  received_quantity Decimal   @default(0)
-  raw_received_quantity Json?
-  damaged_quantity  Decimal   @default(0)
-  raw_damaged_quantity  Json?
-  note              String?
-  metadata          Json?
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @updatedAt
-  deleted_at        DateTime?
+  /// 반품 항목 고유 ID
+  id String @id
 
+  /// 반품 요청 수량
+  quantity Decimal
+
+  /// quantity의 정밀도 보존용 원본 JSON
+  raw_quantity Json
+
+  /// 실제 입고된 수량. 초기값 0
+  received_quantity Decimal @default(0)
+
+  /// received_quantity의 정밀도 보존용 원본 JSON
+  raw_received_quantity Json?
+
+  /// 파손 상태로 입고된 수량. 초기값 0
+  damaged_quantity Decimal @default(0)
+
+  /// damaged_quantity의 정밀도 보존용 원본 JSON
+  raw_damaged_quantity Json?
+
+  /// 반품 사유 메모. null 허용
+  note String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 반품 ID
   return_id String
   return    Return @relation(fields: [return_id], references: [id])
 
+  /// 반품 대상 주문 라인 아이템 ID
   item_id String
   item    OrderLineItem @relation(fields: [item_id], references: [id])
 
+  /// 반품 사유 ID. null이면 사유 미지정
   reason_id String?
   reason    ReturnReason? @relation(fields: [reason_id], references: [id])
 
@@ -600,30 +1196,64 @@ model ReturnItem {
 // Claim
 // ────────────────────────────────────────────────────
 
+/// 주문 클레임(OrderClaim). 고객이 상품 문제(누락·불량·오배송 등)를 신고하는 1건.
+///
+/// 처리 흐름:
+///   - OrderChange(change_type="claim")와 함께 생성.
+///   - type=refund: 문제 상품에 대해 환불만 처리. return_id로 반납 Return 연결 가능.
+///   - type=replace: 새 상품으로 교체 발송.
+///     - OrderClaimItem(is_additional_item=false): 문제 신고 항목.
+///     - OrderClaimItem(is_additional_item=true): 교체 발송할 새 상품.
+///
+/// 라이프사이클:
+///   - 생성 → OrderChangeAction 정의 → OrderChange 확정(confirmed) → 처리 진행.
+///   - canceled_at 기록 시 클레임 취소.
 model OrderClaim {
-  id             String    @id
-  order_version  Int
-  display_id     Int       @default(autoincrement())
-  type           ClaimType
-  no_notification Boolean?
-  refund_amount  Decimal?
-  raw_refund_amount Json?
-  created_by     String?
-  canceled_at    DateTime?
-  metadata       Json?
-  created_at     DateTime  @default(now())
-  updated_at     DateTime  @updatedAt
-  deleted_at     DateTime?
+  /// 클레임 고유 ID (prefix: claim_)
+  id String @id
 
+  /// 클레임 생성 시점의 주문 버전
+  order_version Int
+
+  /// 고객에게 표시되는 클레임 번호. 자동 증가 정수
+  display_id Int @default(autoincrement())
+
+  /// 클레임 유형. replace(교체) 또는 refund(환불)
+  type ClaimType
+
+  /// true이면 고객 알림 비활성화. null이면 기본 동작
+  no_notification Boolean?
+
+  /// 환불 금액. type=refund일 때 사용. null이면 미결정
+  refund_amount Decimal?
+
+  /// refund_amount의 정밀도 보존용 원본 JSON
+  raw_refund_amount Json?
+
+  /// 클레임을 생성한 사용자 ID. null 허용
+  created_by String?
+
+  /// 클레임 취소 시각. null이면 취소 전
+  canceled_at DateTime?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 주문 ID
   order_id String
   order    Order  @relation(fields: [order_id], references: [id])
 
+  /// 반납이 필요한 경우 연결된 반품 ID. null이면 반납 없는 클레임
   return_id String?
   return    Return? @relation("ReturnClaim", fields: [return_id], references: [id])
 
-  additional_items  OrderClaimItem[]
-  shipping_methods  OrderShipping[]
-  transactions      OrderTransaction[]
+  additional_items OrderClaimItem[]
+  shipping_methods OrderShipping[]
+  transactions     OrderTransaction[]
 
   @@index([display_id], name: "IDX_order_claim_display_id")
   @@index([order_id], name: "IDX_order_claim_order_id")
@@ -631,21 +1261,42 @@ model OrderClaim {
   @@index([deleted_at], name: "IDX_order_claim_deleted_at")
 }
 
+/// 클레임 항목(OrderClaimItem). 클레임에 포함된 개별 상품 레코드.
+///
+/// is_additional_item으로 두 가지 용도를 구분:
+///   - false(기본): 문제 신고 항목. 고객이 문제를 주장하는 상품과 사유.
+///   - true: 교체 발송 항목(type=replace). 새로 보낼 상품.
 model OrderClaimItem {
-  id                  String      @id
-  reason              ClaimReason?
-  quantity            Decimal
-  raw_quantity        Json
-  is_additional_item  Boolean     @default(false)
-  note                String?
-  metadata            Json?
-  created_at          DateTime    @default(now())
-  updated_at          DateTime    @updatedAt
-  deleted_at          DateTime?
+  /// 클레임 항목 고유 ID (prefix: claitem_)
+  id String @id
 
+  /// 클레임 사유. false 항목에만 의미 있음. null 허용
+  reason ClaimReason?
+
+  /// 해당 항목 수량
+  quantity Decimal
+
+  /// quantity의 정밀도 보존용 원본 JSON
+  raw_quantity Json
+
+  /// false이면 문제 신고 항목. true이면 교체 발송 항목
+  is_additional_item Boolean @default(false)
+
+  /// 항목 관련 메모. null 허용
+  note String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 클레임 ID
   claim_id String
   claim    OrderClaim @relation(fields: [claim_id], references: [id])
 
+  /// 대상 주문 라인 아이템 ID
   item_id String
   item    OrderLineItem @relation(fields: [item_id], references: [id])
 
@@ -656,14 +1307,24 @@ model OrderClaimItem {
   @@index([deleted_at], name: "IDX_order_claim_item_deleted_at")
 }
 
+/// 클레임 항목 이미지(OrderClaimItemImage). 클레임 항목에 첨부된 증거 이미지.
+///
+/// 고객이 불량·파손 증거 사진을 클레임 신고 시 첨부하는 용도.
 model OrderClaimItemImage {
-  id         String    @id
-  url        String
-  metadata   Json?
+  /// 이미지 고유 ID
+  id String @id
+
+  /// 이미지 URL
+  url String
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   deleted_at DateTime?
 
+  /// 소속 클레임 항목 ID
   claim_item_id String
   claim_item    OrderClaimItem @relation(fields: [claim_item_id], references: [id])
 
@@ -675,30 +1336,64 @@ model OrderClaimItemImage {
 // Exchange
 // ────────────────────────────────────────────────────
 
+/// 주문 교환(OrderExchange). 고객이 상품을 반납하고 다른 상품을 받는 1건의 교환.
+///
+/// 처리 흐름:
+///   - OrderChange(change_type="exchange")와 함께 생성.
+///   - 반납: return_id FK로 Return 연결. 고객이 기존 상품을 반납.
+///   - 발송: OrderExchangeItem으로 새로 받을 상품을 등록.
+///   - difference_due: 교환 시 가격 차이. 양수이면 추가 청구, 음수이면 환불.
+///   - allow_backorder: 교체 상품 재고 부족 시 백오더 허용 여부.
+///
+/// 클레임과의 차이:
+///   - Exchange는 항상 "반납 + 새 상품 발송" 구조.
+///   - Claim은 유형(type)에 따라 환불만 또는 교체 발송 선택 가능.
 model OrderExchange {
-  id              String    @id
-  order_version   Int
-  display_id      Int       @default(autoincrement())
-  no_notification Boolean?
-  difference_due  Decimal?
-  raw_difference_due Json?
-  allow_backorder Boolean   @default(false)
-  created_by      String?
-  metadata        Json?
-  canceled_at     DateTime?
-  created_at      DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
-  deleted_at      DateTime?
+  /// 교환 고유 ID (prefix: oexc_)
+  id String @id
 
+  /// 교환 생성 시점의 주문 버전
+  order_version Int
+
+  /// 고객에게 표시되는 교환 번호. 자동 증가 정수
+  display_id Int @default(autoincrement())
+
+  /// true이면 고객 알림 비활성화. null이면 기본 동작
+  no_notification Boolean?
+
+  /// 교환 가격 차이. 양수=추가 청구, 음수=환불. null이면 미결정
+  difference_due Decimal?
+
+  /// difference_due의 정밀도 보존용 원본 JSON
+  raw_difference_due Json?
+
+  /// true이면 교체 상품 재고 부족 시 백오더 허용
+  allow_backorder Boolean @default(false)
+
+  /// 교환을 생성한 사용자 ID. null 허용
+  created_by String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  /// 교환 취소 시각. null이면 취소 전
+  canceled_at DateTime?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 주문 ID
   order_id String
   order    Order  @relation(fields: [order_id], references: [id])
 
+  /// 반납 처리용 반품 ID. null이면 반납 없는 교환
   return_id String?
   return    Return? @relation("ReturnExchange", fields: [return_id], references: [id])
 
-  additional_items  OrderExchangeItem[]
-  shipping_methods  OrderShipping[]
-  transactions      OrderTransaction[]
+  additional_items OrderExchangeItem[]
+  shipping_methods OrderShipping[]
+  transactions     OrderTransaction[]
 
   @@index([display_id], name: "IDX_order_exchange_display_id")
   @@index([order_id], name: "IDX_order_exchange_order_id")
@@ -706,19 +1401,32 @@ model OrderExchange {
   @@index([deleted_at], name: "IDX_order_exchange_deleted_at")
 }
 
+/// 교환 항목(OrderExchangeItem). 교환에서 새로 발송할 상품 1개.
 model OrderExchangeItem {
-  id         String    @id
-  quantity   Decimal
+  /// 교환 항목 고유 ID
+  id String @id
+
+  /// 교환 발송 수량
+  quantity Decimal
+
+  /// quantity의 정밀도 보존용 원본 JSON
   raw_quantity Json
-  note       String?
-  metadata   Json?
+
+  /// 항목 관련 메모. null 허용
+  note String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   deleted_at DateTime?
 
+  /// 소속 교환 ID
   exchange_id String
   exchange    OrderExchange @relation(fields: [exchange_id], references: [id])
 
+  /// 새로 발송할 주문 라인 아이템 ID (OrderLineItem은 스냅샷 기반, 새 상품 정보 참조)
   item_id String
   item    OrderLineItem @relation(fields: [item_id], references: [id])
 

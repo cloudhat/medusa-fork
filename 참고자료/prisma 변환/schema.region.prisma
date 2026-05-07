@@ -4,38 +4,78 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
+/// 판매 지역(Region). 통화·세금 자동 적용 여부를 묶는 지리적 단위.
+/// 하나의 Region에 여러 국가(RegionCountry)를 포함할 수 있다.
+///
+/// 라이프사이클:
+///   - 어드민에서 생성·관리.
+///   - Cart 생성 시 region_id를 지정하면 해당 리전의 currency_code와
+///     automatic_taxes 설정이 카트 전체에 적용된다.
+///
+/// 모듈 연결:
+///   - Cart.region_id (Cross-module FK, cart 모듈)
+///   - Order.region_id (Cross-module FK, order 모듈)
+///   - TaxRegion 은 별도 모듈(tax)에서 country_code 기준으로 연결
 model Region {
-  id              String    @id
-  name            String
-  currency_code   String
-  automatic_taxes Boolean   @default(true)
-  metadata        Json?
-  created_at      DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
-  deleted_at      DateTime?
+  /// 리전 고유 ID (prefix: reg_)
+  id String @id
+
+  /// 리전 표시 이름. 예: "North America", "Europe"
+  name String
+
+  /// ISO 4217 통화 코드. 이 리전에서 가격이 표시되는 기본 통화. 예: "usd", "eur"
+  currency_code String
+
+  /// true이면 체크아웃 시 세금이 자동으로 계산·적용된다.
+  /// false이면 세금을 수동으로 처리해야 한다.
+  automatic_taxes Boolean @default(true)
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  deleted_at DateTime?
 
   countries RegionCountry[]
 
   @@map("region")
 }
 
+/// 리전에 속한 국가. ISO 표준 코드를 PK로 사용한다.
+///
+/// 하나의 국가는 최대 하나의 리전에만 속할 수 있다(region_id 제약).
+/// Cart의 shipping/billing address에서 country_code를 통해 어느 리전인지 식별한다.
 model RegionCountry {
-  iso_2        String    @id
-  iso_3        String
-  num_code     String
-  name         String
-  display_name String
-  metadata     Json?
-  created_at   DateTime  @default(now())
-  updated_at   DateTime  @updatedAt
-  deleted_at   DateTime?
+  /// ISO 3166-1 alpha-2 국가 코드. 기본 키로 사용. 예: "us", "kr", "de"
+  iso_2 String @id
 
+  /// ISO 3166-1 alpha-3 국가 코드. 예: "usa", "kor", "deu"
+  iso_3 String
+
+  /// ISO 3166-1 숫자 코드. 예: "840"(미국), "410"(한국)
+  num_code String
+
+  /// 공식 국가 영문명. 예: "United States"
+  name String
+
+  /// UI 표시용 국가명. 예: "United States of America"
+  display_name String
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  deleted_at DateTime?
+
+  /// 이 국가가 속한 리전. null이면 어느 리전에도 배정되지 않은 상태
   region_id String?
   region    Region? @relation(fields: [region_id], references: [id])
 
+  /// (region_id, iso_2) 조합은 유일해야 한다 — 한 국가는 한 리전에만
   @@unique([region_id, iso_2], name: "IDX_region_country_region_id_iso_2")
   @@map("region_country")
 }

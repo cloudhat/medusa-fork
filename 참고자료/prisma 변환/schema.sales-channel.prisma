@@ -4,16 +4,38 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
+/// 판매 채널(Sales Channel). 상품·재고·주문이 노출·처리되는 판매 경로 단위.
+/// 예: "온라인 스토어", "모바일 앱", "B2B 포털" 등 각각 독립된 채널로 구성.
+///
+/// 라이프사이클:
+///   - 어드민에서 생성·관리.
+///   - Cart, Order 생성 시 sales_channel_id를 지정해 어느 채널을 통한 거래인지 기록.
+///   - StockLocation과 Remote Link로 연결 → 채널별 재고 가용 위치 제어.
+///   - Product와 Remote Link로 연결 → 채널별 노출 상품 제어.
+///
+/// 모듈 연결 (모두 Remote Link, 이 스키마에 FK 없음):
+///   - Cart.sales_channel_id, Order.sales_channel_id (cross-module 참조)
+///   - StockLocation ↔ SalesChannel (link-modules)
+///   - Product ↔ SalesChannel (link-modules)
 model SalesChannel {
-  id          String    @id
-  name        String
+  /// 판매 채널 고유 ID (prefix: sc_)
+  id String @id
+
+  /// 채널 표시 이름. 예: "Web Storefront", "Mobile App"
+  name String
+
+  /// 채널 설명. null 허용
   description String?
-  is_disabled Boolean   @default(false)
-  metadata    Json?
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
-  deleted_at  DateTime?
+
+  /// true이면 이 채널을 통한 판매가 비활성화된 상태
+  is_disabled Boolean @default(false)
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
 }

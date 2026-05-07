@@ -4,9 +4,13 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
+/// 상품 상태
+/// - draft: 초안. 공개되지 않은 상태.
+/// - proposed: 검토 요청 상태.
+/// - published: 공개 상태. 스토어에 노출됨.
+/// - rejected: 반려 상태.
 enum ProductStatus {
   draft
   published
@@ -14,40 +18,92 @@ enum ProductStatus {
   rejected
 }
 
+/// 상품(Product). 스토어에서 판매하는 상품의 기본 정보 단위.
+///
+/// 라이프사이클:
+///   - 어드민에서 생성. status = draft로 시작, 검토 후 published로 전환하면 스토어에 노출된다.
+///   - ProductVariant를 통해 실제 판매 가능한 SKU로 세분화된다.
+///   - ProductOption / ProductOptionValue를 통해 색상·사이즈 등 선택 속성을 구성한다.
+///
+/// 모듈 연결 (Remote Link, 이 스키마에 FK 없음):
+///   - SalesChannel ↔ Product (product_sales_channel 링크 테이블) → 채널별 노출 상품 제어
+///   - ProductVariant ↔ PriceSet (pricing 모듈 Remote Link)
+///   - ProductVariant ↔ InventoryItem (inventory 모듈 Remote Link)
 model Product {
-  id             String        @id
-  title          String
-  handle         String
-  subtitle       String?
-  description    String?
-  is_giftcard    Boolean       @default(false)
-  status         ProductStatus @default(draft)
-  thumbnail      String?
-  weight         Float?
-  length         Float?
-  height         Float?
-  width          Float?
+  /// 상품 고유 ID (prefix: prod_)
+  id String @id
+
+  /// 상품 표시 이름. 예: "Classic T-Shirt"
+  title String
+
+  /// URL 슬러그. 스토어에서 상품 페이지 경로에 사용. 예: "classic-t-shirt"
+  handle String
+
+  /// 짧은 부제목. null 허용
+  subtitle String?
+
+  /// 상품 상세 설명. null 허용
+  description String?
+
+  /// true이면 기프트 카드 상품
+  is_giftcard Boolean @default(false)
+
+  /// 상품 공개 상태
+  status ProductStatus @default(draft)
+
+  /// 대표 이미지 URL. null 허용
+  thumbnail String?
+
+  /// 무게. 단위는 애플리케이션 레이어에서 결정. null 허용
+  weight Float?
+
+  /// 길이. null 허용
+  length Float?
+
+  /// 높이. null 허용
+  height Float?
+
+  /// 너비. null 허용
+  width Float?
+
+  /// 원산지 국가 코드. null 허용
   origin_country String?
-  hs_code        String?
-  mid_code       String?
-  material       String?
-  discountable   Boolean       @default(true)
-  external_id    String?
-  metadata       Json?
-  created_at     DateTime      @default(now())
-  updated_at     DateTime      @updatedAt
-  deleted_at     DateTime?
 
-  type_id        String?
-  collection_id  String?
+  /// 국제 통일 상품 분류 코드(HS Code). 세관 신고에 사용. null 허용
+  hs_code String?
 
-  type           ProductType?        @relation(fields: [type_id], references: [id])
-  collection     ProductCollection?  @relation(fields: [collection_id], references: [id])
-  variants       ProductVariant[]
-  options        ProductOption[]
-  images         ProductImage[]
-  tags           ProductTagProduct[]
-  categories     ProductCategoryProduct[]
+  /// 제조업체 식별 코드(MID Code). null 허용
+  mid_code String?
+
+  /// 소재/재질. null 허용
+  material String?
+
+  /// true이면 프로모션·할인 적용 가능 상품
+  discountable Boolean @default(true)
+
+  /// 외부 시스템 연동용 ID. null 허용
+  external_id String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 상품 유형 ID. null이면 유형 미지정
+  type_id String?
+
+  /// 상품 컬렉션 ID. null이면 컬렉션 미지정
+  collection_id String?
+
+  type       ProductType?        @relation(fields: [type_id], references: [id])
+  collection ProductCollection?  @relation(fields: [collection_id], references: [id])
+  variants   ProductVariant[]
+  options    ProductOption[]
+  images     ProductImage[]
+  tags       ProductTagProduct[]
+  categories ProductCategoryProduct[]
 
   @@index([handle], name: "IDX_product_handle_unique")
   @@index([type_id], name: "IDX_product_type_id")
@@ -55,30 +111,79 @@ model Product {
   @@index([status], name: "IDX_product_status")
 }
 
+/// 상품 변형(ProductVariant). 실제로 재고를 추적하고 판매하는 SKU 단위.
+///
+/// 라이프사이클:
+///   - Product 생성 후 색상·사이즈 등 옵션 조합별로 Variant를 추가한다.
+///   - 각 Variant에 PriceSet(가격)과 InventoryItem(재고)이 Remote Link로 연결된다.
+///   - Cart 추가 시 variant_id를 지정하여 구체적인 옵션이 확정된 상품을 담는다.
+///
+/// 모듈 연결 (Remote Link, 이 스키마에 FK 없음):
+///   - PriceSet ↔ ProductVariant (pricing 모듈)
+///   - InventoryItem ↔ ProductVariant (inventory 모듈)
 model ProductVariant {
-  id               String   @id
-  title            String
-  sku              String?
-  barcode          String?
-  ean              String?
-  upc              String?
-  allow_backorder  Boolean  @default(false)
-  manage_inventory Boolean  @default(true)
-  hs_code          String?
-  origin_country   String?
-  mid_code         String?
-  material         String?
-  weight           Float?
-  length           Float?
-  height           Float?
-  width            Float?
-  metadata         Json?
-  variant_rank     Int?     @default(0)
-  thumbnail        String?
-  created_at       DateTime @default(now())
-  updated_at       DateTime @updatedAt
-  deleted_at       DateTime?
+  /// 변형 고유 ID (prefix: variant_)
+  id String @id
 
+  /// 변형 표시 이름. 예: "Black / Large"
+  title String
+
+  /// 재고 관리 코드(SKU). 중복 불가. null 허용
+  sku String?
+
+  /// 바코드. 중복 불가. null 허용
+  barcode String?
+
+  /// 유럽 상품 코드(EAN-13). 중복 불가. null 허용
+  ean String?
+
+  /// 미국 상품 코드(UPC). 중복 불가. null 허용
+  upc String?
+
+  /// true이면 재고 소진 시에도 주문(백오더) 허용
+  allow_backorder Boolean @default(false)
+
+  /// true이면 InventoryItem을 통해 재고 수량을 추적
+  manage_inventory Boolean @default(true)
+
+  /// 국제 통일 상품 분류 코드(HS Code). null 허용
+  hs_code String?
+
+  /// 원산지 국가 코드. null 허용
+  origin_country String?
+
+  /// 제조업체 식별 코드. null 허용
+  mid_code String?
+
+  /// 소재/재질. null 허용
+  material String?
+
+  /// 무게. null 허용
+  weight Float?
+
+  /// 길이. null 허용
+  length Float?
+
+  /// 높이. null 허용
+  height Float?
+
+  /// 너비. null 허용
+  width Float?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  /// 상품 내 변형 정렬 순서. 숫자가 낮을수록 먼저 표시
+  variant_rank Int? @default(0)
+
+  /// 변형 대표 이미지 URL. null 허용
+  thumbnail String?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 상품 ID. null 허용 (독립 변형)
   product_id String?
   product    Product? @relation(fields: [product_id], references: [id])
 
@@ -93,39 +198,67 @@ model ProductVariant {
   @@index([id, product_id], name: "IDX_product_variant_id_product_id")
 }
 
+/// 상품 옵션(ProductOption). 상품의 선택 속성 정의. 예: "색상", "사이즈"
+///
+/// 라이프사이클:
+///   - Product 생성 시 또는 이후 추가. 같은 상품에 동일 제목의 옵션은 중복 불가.
+///   - ProductOptionValue를 통해 구체적인 선택지(예: "Red", "L")를 등록한다.
+///   - ProductVariantOption을 통해 각 변형이 어떤 옵션 값 조합인지 기록된다.
 model ProductOption {
-  id         String    @id
-  title      String
-  metadata   Json?
+  /// 옵션 고유 ID (prefix: opt_)
+  id String @id
+
+  /// 옵션 표시 이름. 예: "Color", "Size"
+  title String
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   deleted_at DateTime?
 
+  /// 소속 상품 ID
   product_id String
   product    Product @relation(fields: [product_id], references: [id])
 
   values ProductOptionValue[]
 
+  /// 동일 상품 내 옵션 제목 중복 불가
   @@unique([product_id, title], name: "IDX_option_product_id_title_unique")
 }
 
+/// 상품 옵션 값(ProductOptionValue). ProductOption의 구체적인 선택지.
+///
+/// 예: 옵션 "Color"의 값으로 "Red", "Blue", "Green" 레코드가 생성됨.
+/// ProductVariantOption을 통해 각 변형이 어떤 값을 선택했는지 연결된다.
 model ProductOptionValue {
-  id         String    @id
-  value      String
-  metadata   Json?
+  /// 옵션 값 고유 ID (prefix: optval_)
+  id String @id
+
+  /// 선택지 값. 예: "Red", "L", "XL"
+  value String
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   deleted_at DateTime?
 
+  /// 소속 옵션 ID. null 허용
   option_id String?
   option    ProductOption? @relation(fields: [option_id], references: [id])
 
   variants ProductVariantOption[]
 
+  /// 동일 옵션 내 같은 값 중복 불가
   @@unique([option_id, value], name: "IDX_option_value_option_id_unique")
 }
 
-// pivot: product_variant_option
+/// 변형-옵션값 연결(ProductVariantOption). ProductVariant와 ProductOptionValue의 다대다 피벗 테이블.
+///
+/// 예: "Black / Large" 변형은 (color=Black, size=Large) 두 개의 레코드를 가진다.
 model ProductVariantOption {
   variant_id      String
   option_value_id String
@@ -137,32 +270,64 @@ model ProductVariantOption {
   @@map("product_variant_option")
 }
 
+/// 상품 카테고리(ProductCategory). 상품을 계층적으로 분류하는 카테고리 트리.
+///
+/// 계층 구조:
+///   - parent_category_id가 null이면 루트 카테고리.
+///   - mpath(materialized path)로 전체 조상 경로를 문자열로 저장. 예: "cat_root.cat_clothes.cat_tops."
+///   - mpath를 통해 단일 쿼리로 하위 카테고리 전체를 조회할 수 있다.
+///
+/// 가시성 제어:
+///   - is_active = false이면 스토어에서 숨겨진 상태.
+///   - is_internal = true이면 내부 운영용 카테고리로 공개 API에 노출되지 않음.
 model ProductCategory {
-  id          String    @id
-  name        String
-  description String    @default("")
-  handle      String
-  mpath       String
-  is_active   Boolean   @default(false)
-  is_internal Boolean   @default(false)
-  rank        Int       @default(0)
-  external_id String?
-  metadata    Json?
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
-  deleted_at  DateTime?
+  /// 카테고리 고유 ID (prefix: pcat_)
+  id String @id
 
+  /// 카테고리 표시 이름
+  name String
+
+  /// 카테고리 설명
+  description String @default("")
+
+  /// URL 슬러그. 카테고리 페이지 경로에 사용
+  handle String
+
+  /// Materialized Path. 조상 카테고리 ID를 점(.)으로 구분한 경로 문자열. 하위 트리 조회에 사용
+  mpath String
+
+  /// true이면 스토어에 공개된 카테고리
+  is_active Boolean @default(false)
+
+  /// true이면 내부 운영용 카테고리. 공개 API에 노출되지 않음
+  is_internal Boolean @default(false)
+
+  /// 같은 부모 카테고리 내에서의 정렬 순서
+  rank Int @default(0)
+
+  /// 외부 시스템 연동용 ID. null 허용
+  external_id String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 상위 카테고리 ID. null이면 루트 카테고리
   parent_category_id String?
   parent_category    ProductCategory?  @relation("CategoryHierarchy", fields: [parent_category_id], references: [id])
   category_children  ProductCategory[] @relation("CategoryHierarchy")
 
   products ProductCategoryProduct[]
 
+  /// handle은 전체에서 유일해야 한다
   @@unique([handle], name: "IDX_category_handle_unique")
   @@index([mpath], name: "IDX_product_category_path")
 }
 
-// pivot: product_category_product
+/// 상품-카테고리 연결(ProductCategoryProduct). Product와 ProductCategory의 다대다 피벗 테이블.
 model ProductCategoryProduct {
   product_id  String
   category_id String
@@ -174,29 +339,55 @@ model ProductCategoryProduct {
   @@map("product_category_product")
 }
 
+/// 상품 컬렉션(ProductCollection). 편집 목적으로 상품을 묶는 큐레이션 단위.
+///
+/// 예: "여름 신상품", "SALE 상품" 등 마케팅·편집 목적의 상품 묶음.
+/// 카테고리(ProductCategory)는 분류 체계이고 컬렉션은 큐레이션 목적이다.
 model ProductCollection {
-  id          String    @id
-  title       String
-  handle      String
+  /// 컬렉션 고유 ID (prefix: pcol_)
+  id String @id
+
+  /// 컬렉션 표시 이름
+  title String
+
+  /// URL 슬러그. 컬렉션 페이지 경로에 사용
+  handle String
+
+  /// 외부 시스템 연동용 ID. null 허용
   external_id String?
-  metadata    Json?
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
-  deleted_at  DateTime?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
 
   products Product[]
 
+  /// handle은 전체에서 유일해야 한다
   @@unique([handle], name: "IDX_collection_handle_unique")
 }
 
+/// 상품 태그(ProductTag). 상품에 붙이는 자유 형식 레이블.
+///
+/// 검색 필터, 세일 조건 등에 활용된다. 여러 상품에 동일 태그를 공유할 수 있다.
 model ProductTag {
-  id          String    @id
-  value       String
+  /// 태그 고유 ID (prefix: ptag_)
+  id String @id
+
+  /// 태그 값. 예: "organic", "new-arrival". 전체에서 유일
+  value String
+
+  /// 외부 시스템 연동용 ID. null 허용
   external_id String?
-  metadata    Json?
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
-  deleted_at  DateTime?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
 
   products ProductTagProduct[]
 
@@ -204,7 +395,7 @@ model ProductTag {
   @@map("product_tag")
 }
 
-// pivot: product_tags
+/// 상품-태그 연결(ProductTagProduct). Product와 ProductTag의 다대다 피벗 테이블.
 model ProductTagProduct {
   product_id String
   tag_id     String
@@ -216,29 +407,54 @@ model ProductTagProduct {
   @@map("product_tags")
 }
 
+/// 상품 유형(ProductType). 상품을 유형별로 분류하는 단순 레이블.
+///
+/// 예: "Physical", "Digital", "Bundle" 등 상품의 성격을 구분하는 데 사용.
+/// 세금 계산 시 product_type_id를 기준으로 TaxRateRule을 매칭할 수 있다.
 model ProductType {
-  id          String    @id
-  value       String
+  /// 유형 고유 ID (prefix: ptyp_)
+  id String @id
+
+  /// 유형 값. 전체에서 유일. 예: "Physical", "Digital"
+  value String
+
+  /// 외부 시스템 연동용 ID. null 허용
   external_id String?
-  metadata    Json?
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
-  deleted_at  DateTime?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
 
   products Product[]
 
   @@unique([value], name: "IDX_type_value_unique")
 }
 
+/// 상품 이미지(ProductImage). 상품에 등록된 이미지 레코드.
+///
+/// 상품 상세 갤러리에 표시되는 이미지를 관리한다.
+/// ProductVariant와도 연결(ProductVariantProductImage)되어 변형별 이미지를 지정할 수 있다.
 model ProductImage {
-  id         String    @id
-  url        String
-  metadata   Json?
-  rank       Int       @default(0)
+  /// 이미지 고유 ID (prefix: img_)
+  id String @id
+
+  /// 이미지 URL
+  url String
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  /// 이미지 표시 순서. 숫자가 낮을수록 먼저 표시
+  rank Int @default(0)
+
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   deleted_at DateTime?
 
+  /// 소속 상품 ID
   product_id String
   product    Product @relation(fields: [product_id], references: [id])
 
@@ -249,7 +465,9 @@ model ProductImage {
   @@map("image")
 }
 
-// pivot: product_variant_product_image
+/// 변형-이미지 연결(ProductVariantProductImage). ProductVariant와 ProductImage의 다대다 피벗 테이블.
+///
+/// 특정 변형에 대응하는 이미지(예: 색상별 이미지)를 지정할 때 사용한다.
 model ProductVariantProductImage {
   variant_id String
   image_id   String

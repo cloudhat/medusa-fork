@@ -4,31 +4,49 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
+/// 가격 목록 상태
+/// - draft: 미공개. 가격 계산에 포함되지 않는다.
+/// - active: 활성. 가격 계산 시 조건 매칭 대상이 된다.
 enum PriceListStatus {
   active
   draft
 }
 
+/// 가격 목록 유형
+/// - sale: 기존 기본 가격에 추가로 적용되는 할인 가격.
+/// - override: 기존 기본 가격을 완전히 대체하는 가격.
 enum PriceListType {
   sale
   override
 }
 
+/// 가격 규칙 비교 연산자
+/// 가격 계산 컨텍스트(예: region_id, currency_code)와 PriceRule.value를 비교할 때 사용.
 enum PricingRuleOperator {
-  EQ
-  GT
-  GTE
-  LT
-  LTE
-  NIN
-  IN
+  EQ  /// 같음
+  GT  /// 초과
+  GTE /// 이상
+  LT  /// 미만
+  LTE /// 이하
+  NIN /// 목록에 없음 (not in)
+  IN  /// 목록에 있음
 }
 
+/// 가격 묶음(PriceSet). 하나의 판매 가능 항목(예: ProductVariant)에 대한 가격 컨테이너.
+///
+/// 라이프사이클:
+///   - ProductVariant 생성 시 자동으로 PriceSet이 함께 생성된다.
+///   - 이후 Price 레코드를 추가하여 통화별·조건별 가격을 등록한다.
+///   - 가격 조회 시 요청 컨텍스트(currency_code, region_id 등)와 PriceRule을 매칭해 최적 Price를 반환.
+///
+/// 모듈 연결 (Remote Link, 이 스키마에 FK 없음):
+///   - ProductVariant ↔ PriceSet (product_variant_price_set 링크 테이블)
 model PriceSet {
-  id         String    @id
+  /// 가격 묶음 고유 ID (prefix: pset_)
+  id String @id
+
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   deleted_at DateTime?
@@ -36,24 +54,57 @@ model PriceSet {
   prices Price[]
 }
 
+/// 가격(Price). PriceSet 내의 실제 금액 레코드.
+///
+/// 기본 사용:
+///   - currency_code + amount 조합으로 통화별 가격을 표현한다.
+///   - min_quantity / max_quantity를 설정하면 구매 수량 구간별 볼륨 가격이 된다.
+///   - price_list_id가 null이면 기본 가격, not null이면 PriceList에 속하는 세일/오버라이드 가격.
+///
+/// 가격 계산 흐름:
+///   1. 요청 컨텍스트(currency_code 등)로 해당 PriceSet의 Price 후보를 필터링.
+///   2. 각 Price에 붙은 PriceRule 조건이 컨텍스트와 매칭되는지 확인.
+///   3. rules_count가 가장 높은(가장 구체적인) Price를 최종 선택.
 model Price {
-  id            String    @id
-  title         String?
-  currency_code String
-  amount        Decimal
-  raw_amount    Json
-  min_quantity  Decimal?
-  raw_min_quantity Json?
-  max_quantity  Decimal?
-  raw_max_quantity Json?
-  rules_count   Int?      @default(0)
-  created_at    DateTime  @default(now())
-  updated_at    DateTime  @updatedAt
-  deleted_at    DateTime?
+  /// 가격 고유 ID (prefix: price_)
+  id String @id
 
+  /// 관리자용 선택적 레이블. null 허용
+  title String?
+
+  /// ISO 4217 통화 코드. 예: "usd", "eur", "krw"
+  currency_code String
+
+  /// 금액 (정밀도 보존을 위해 Decimal 사용). 예: 10000.00
+  amount Decimal
+
+  /// amount의 정밀도 보존용 원본 JSON (bigNumber 저장 방식)
+  raw_amount Json
+
+  /// 이 가격이 적용되는 최소 구매 수량. null이면 수량 하한 없음
+  min_quantity Decimal?
+
+  /// min_quantity의 정밀도 보존용 원본 JSON
+  raw_min_quantity Json?
+
+  /// 이 가격이 적용되는 최대 구매 수량. null이면 수량 상한 없음
+  max_quantity Decimal?
+
+  /// max_quantity의 정밀도 보존용 원본 JSON
+  raw_max_quantity Json?
+
+  /// 이 Price에 연결된 PriceRule 수 (캐시 값). 가격 선택 시 우선순위 결정에 활용
+  rules_count Int? @default(0)
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 가격 묶음 ID
   price_set_id String
   price_set    PriceSet @relation(fields: [price_set_id], references: [id])
 
+  /// 소속 가격 목록 ID. null이면 기본 가격, not null이면 PriceList 소속 가격
   price_list_id String?
   price_list    PriceList? @relation(fields: [price_list_id], references: [id])
 
@@ -64,68 +115,146 @@ model Price {
   @@index([currency_code], name: "IDX_price_currency_code")
 }
 
+/// 가격 규칙(PriceRule). 특정 Price가 선택되기 위한 컨텍스트 조건.
+///
+/// 동작:
+///   - attribute + operator + value 조합으로 "이 Price는 어떤 컨텍스트에서 적용되는가"를 명시.
+///   - 예: attribute="region_id", operator=EQ, value="reg_01" → 해당 리전에서만 이 Price 선택.
+///   - 가격 계산 시 요청 컨텍스트와 모든 PriceRule을 매칭, rules_count가 높은 Price를 우선 선택.
 model PriceRule {
-  id         String              @id
-  attribute  String
-  value      String
-  operator   PricingRuleOperator @default(EQ)
-  priority   Int                 @default(0)
-  created_at DateTime            @default(now())
-  updated_at DateTime            @updatedAt
+  /// 규칙 고유 ID (prefix: prule_)
+  id String @id
+
+  /// 비교 대상 속성명. 예: "region_id", "currency_code", "customer_group_id"
+  attribute String
+
+  /// 비교 대상 값. 예: "reg_01", "usd"
+  value String
+
+  /// 비교 연산자. 기본값 EQ (일치)
+  operator PricingRuleOperator @default(EQ)
+
+  /// 동일 조건에서 여러 규칙이 매칭될 때의 우선순위. 숫자가 클수록 높은 우선순위
+  priority Int @default(0)
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
   deleted_at DateTime?
 
+  /// 이 규칙이 속하는 Price ID
   price_id String
-  price    Price  @relation(fields: [price_id], references: [id])
+  price    Price @relation(fields: [price_id], references: [id])
 
+  /// 동일 Price에 같은 (attribute, operator) 조합의 규칙은 중복 불가
   @@unique([price_id, attribute, operator], name: "IDX_price_rule_unique")
   @@index([attribute], name: "IDX_price_rule_attribute")
   @@index([attribute, value], name: "IDX_price_rule_attribute_value")
 }
 
+/// 가격 목록(PriceList). 특정 기간·조건에서만 활성화되는 가격 묶음.
+///
+/// 유형별 동작:
+///   - sale: 기본 가격에 추가로 적용되는 할인 가격 목록. 고객이 두 가격 중 더 낮은 것을 받음.
+///   - override: 기존 기본 가격을 완전히 대체. 세일 기간에 특정 고객 그룹에 전용 가격 제공 시 사용.
+///
+/// 라이프사이클:
+///   - 어드민에서 생성. status = draft로 시작.
+///   - status = active + starts_at/ends_at 범위 내에 있을 때만 가격 계산에 포함.
+///   - PriceListRule을 통해 특정 고객 그룹에만 적용되도록 조건 추가 가능.
 model PriceList {
-  id          String          @id
-  title       String
+  /// 가격 목록 고유 ID (prefix: plist_)
+  id String @id
+
+  /// 관리자 식별용 제목
+  title String
+
+  /// 가격 목록 설명
   description String
-  status      PriceListStatus @default(draft)
-  type        PriceListType   @default(sale)
-  starts_at   DateTime?
-  ends_at     DateTime?
-  rules_count Int?            @default(0)
-  metadata    Json?
-  created_at  DateTime        @default(now())
-  updated_at  DateTime        @updatedAt
-  deleted_at  DateTime?
 
-  prices           Price[]
-  price_list_rules PriceListRule[]
+  /// 활성화 상태. draft 상태에서는 가격 계산에 포함되지 않음
+  status PriceListStatus @default(draft)
 
-  @@index([id, status, starts_at, ends_at], name: "IDX_price_list_active")
-}
+  /// 가격 목록 유형. sale(할인 추가) 또는 override(기본 가격 대체)
+  type PriceListType @default(sale)
 
-model PriceListRule {
-  id         String    @id
-  attribute  String
-  value      Json?
+  /// 활성화 시작 시각. null이면 즉시 유효
+  starts_at DateTime?
+
+  /// 만료 시각. null이면 종료일 없음
+  ends_at DateTime?
+
+  /// 연결된 PriceListRule 수 (캐시 값)
+  rules_count Int? @default(0)
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   deleted_at DateTime?
 
+  prices           Price[]
+  price_list_rules PriceListRule[]
+
+  /// (id, status, starts_at, ends_at) 복합 인덱스 — 활성 PriceList 필터링 쿼리 최적화용
+  @@index([id, status, starts_at, ends_at], name: "IDX_price_list_active")
+}
+
+/// 가격 목록 규칙(PriceListRule). PriceList 전체가 활성화되기 위한 컨텍스트 조건.
+///
+/// 동작:
+///   - PriceRule이 개별 Price 수준의 조건이라면, PriceListRule은 PriceList 전체 활성화 조건이다.
+///   - 예: attribute="customer_group_id", value=["vip", "wholesale"] → 해당 그룹 고객에게만 PriceList 적용.
+///   - value가 JSON 배열이므로 복수 값을 하나의 규칙으로 표현 가능.
+model PriceListRule {
+  /// 규칙 고유 ID
+  id String @id
+
+  /// 조건 속성명. 예: "customer_group_id", "region_id"
+  attribute String
+
+  /// 조건 값. JSON 배열로 복수 값 저장 가능. 예: ["vip", "wholesale"]
+  value Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 가격 목록 ID
   price_list_id String
   price_list    PriceList @relation(fields: [price_list_id], references: [id])
 
   @@index([price_list_id], name: "IDX_price_list_rule_price_list_id")
   @@index([attribute], name: "IDX_price_list_rule_attribute")
-  // value 필드에 GIN 인덱스가 필요할 경우 마이그레이션 SQL에서 추가 필요
+  // value 컬럼의 JSON 배열 요소 검색을 위한 GIN 인덱스는 마이그레이션 SQL에서 추가 필요
 }
 
+/// 가격 선호도(PricePreference). 특정 컨텍스트에서 세금 포함 여부를 전역으로 설정하는 규칙.
+///
+/// 동작:
+///   - attribute + value 조합으로 컨텍스트를 특정하고, 그 컨텍스트의 모든 가격에 세금 포함 여부를 지정.
+///   - 예: attribute="region_id", value="reg_01", is_tax_inclusive=true → 해당 리전의 모든 가격은 세금 포함.
+///   - PriceSet·Price와 직접 FK 연결 없음. 가격 계산 시 컨텍스트 매칭으로 조회됨.
+///
+/// 모듈 연결:
+///   - Region (Remote Link 없음, attribute="region_id" 문자열 컨벤션으로 매칭)
 model PricePreference {
-  id               String    @id
-  attribute        String
-  value            String?
-  is_tax_inclusive Boolean   @default(false)
-  created_at       DateTime  @default(now())
-  updated_at       DateTime  @updatedAt
-  deleted_at       DateTime?
+  /// 선호도 고유 ID (prefix: prpref_)
+  id String @id
 
+  /// 규칙 속성명. 예: "region_id", "currency_code"
+  attribute String
+
+  /// 속성의 구체적 값. null이면 해당 attribute 전체에 적용. 예: "reg_01"
+  value String?
+
+  /// true이면 이 조건의 가격은 모두 세금 포함 금액으로 처리
+  is_tax_inclusive Boolean @default(false)
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// (attribute, value) 조합은 유일해야 한다 — 동일 조건의 선호도 중복 불가
   @@unique([attribute, value], name: "IDX_price_preference_attribute_value")
 }

@@ -4,35 +4,80 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
+/// 재고 위치 주소(StockLocationAddress). StockLocation과 1:1로 연결되는 실제 물리적 주소.
+///
+/// 라이프사이클:
+///   - StockLocation 생성/수정 시 함께 생성·갱신된다.
+///   - StockLocation.address_id로 참조된다.
+///
+/// 모듈 연결:
+///   - StockLocation (1:1 @relation)
 model StockLocationAddress {
-  id           String    @id
-  address_1    String
-  address_2    String?
-  company      String?
-  city         String?
+  /// 주소 고유 ID
+  id String @id
+
+  /// 도로명 주소 1행 (필수)
+  address_1 String
+
+  /// 도로명 주소 2행 (건물명·호수 등). null 허용
+  address_2 String?
+
+  /// 회사/기관명. null 허용
+  company String?
+
+  /// 도시명. null 허용
+  city String?
+
+  /// ISO 3166-1 alpha-2 국가 코드 (필수). 예: "kr", "us"
   country_code String
-  phone        String?
-  province     String?
-  postal_code  String?
-  metadata     Json?
-  created_at   DateTime  @default(now())
-  updated_at   DateTime  @updatedAt
-  deleted_at   DateTime?
 
-  stock_location StockLocation?
-}
+  /// 전화번호. null 허용
+  phone String?
 
-model StockLocation {
-  id         String    @id
-  name       String
-  metadata   Json?
+  /// 주/도 코드 (ISO 3166-2 하위 단위). null 허용. 예: "KR-11"(서울)
+  province String?
+
+  /// 우편번호. null 허용
+  postal_code String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   deleted_at DateTime?
 
+  stock_location StockLocation?
+}
+
+/// 재고 위치(StockLocation). 물리적 창고·매장처럼 재고를 보관하는 공간 단위.
+///
+/// 라이프사이클:
+///   - 어드민에서 생성·관리.
+///   - InventoryLevel.location_id로 참조 → 위치별 재고 수량(on_hand, reserved, available) 추적.
+///   - ReservationItem.location_id로 참조 → 주문 처리를 위한 재고 예약.
+///
+/// 모듈 연결 (모두 Remote Link):
+///   - SalesChannel ↔ StockLocation (link-modules) → 채널별 가용 재고 위치 제어
+///   - FulfillmentSet ↔ StockLocation (link-modules) → 배송 방식별 출고 위치 제어
+///   - InventoryLevel.location_id (cross-module 참조, inventory 모듈)
+model StockLocation {
+  /// 재고 위치 고유 ID
+  id String @id
+
+  /// 위치 표시 이름. 예: "서울 물류센터", "부산 창고"
+  name String
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 연결된 주소 ID. null이면 주소 미등록 상태
   address_id String?               @unique
   address    StockLocationAddress? @relation(fields: [address_id], references: [id])
 }

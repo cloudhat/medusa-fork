@@ -4,25 +4,59 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
+/// 장바구니(Cart). 고객이 구매하기 전 상품을 담아두는 임시 컨테이너.
+///
+/// 라이프사이클:
+///   - 고객이 처음 상품을 담을 때 생성. completed_at이 null인 동안 활성 상태.
+///   - 체크아웃 완료(주문 생성) 시 completed_at 타임스탬프 기록.
+///   - region_id, customer_id, sales_channel_id는 Remote Link 방식(text 컬럼).
+///
+/// 금액 totals (모두 computed — DB 컬럼 없음):
+///   original_item_total, item_total, total, subtotal, tax_total,
+///   discount_total, shipping_total 등 모든 합계 필드는 서비스 레이어에서 계산 후 응답에만 포함.
+///
+/// 모듈 연결 (Remote Link, 이 스키마에 FK 없음):
+///   - Region.id (region_id), Customer.id (customer_id), SalesChannel.id (sales_channel_id)
+///   - PaymentCollection (payment 모듈 Remote Link)
 model Cart {
-  id               String    @id
-  region_id        String?
-  customer_id      String?
-  sales_channel_id String?
-  email            String?
-  currency_code    String
-  locale           String?
-  metadata         Json?
-  completed_at     DateTime?
-  created_at       DateTime  @default(now())
-  updated_at       DateTime  @updatedAt
-  deleted_at       DateTime?
+  /// 카트 고유 ID (prefix: cart_)
+  id String @id
 
+  /// 리전 ID. Remote Link → Region 모듈. null이면 리전 미지정
+  region_id String?
+
+  /// 고객 ID. Remote Link → Customer 모듈. null이면 비회원 카트
+  customer_id String?
+
+  /// 판매 채널 ID. Remote Link → SalesChannel 모듈. null이면 채널 미지정
+  sales_channel_id String?
+
+  /// 비회원 체크아웃 시 이메일. 회원은 customer_id로 연결. null 허용
+  email String?
+
+  /// 카트의 결제 통화 코드. 예: "usd", "krw"
+  currency_code String
+
+  /// BCP 47 언어 태그. 예: "en-US", "ko-KR". null 허용
+  locale String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  /// 주문 완료 시각. null이면 진행 중인 카트
+  completed_at DateTime?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 배송지 주소 ID
   shipping_address_id String?
-  billing_address_id  String?
+
+  /// 청구지 주소 ID
+  billing_address_id String?
 
   shipping_address CartAddress? @relation("CartShippingAddress", fields: [shipping_address_id], references: [id])
   billing_address  CartAddress? @relation("CartBillingAddress", fields: [billing_address_id], references: [id])
@@ -42,23 +76,54 @@ model Cart {
   @@index([billing_address_id], name: "IDX_cart_billing_address_id")
 }
 
+/// 카트 주소(CartAddress). 카트의 배송지 또는 청구지 주소.
+///
+/// Cart.shipping_address_id / billing_address_id 두 FK에서 동일한 CartAddress 테이블을 참조.
+/// 모든 주소 필드가 nullable — 부분 입력(주소 일부만 입력한 상태)을 허용한다.
+/// Cart 삭제 시 함께 삭제.
 model CartAddress {
-  id           String    @id
-  customer_id  String?
-  company      String?
-  first_name   String?
-  last_name    String?
-  address_1    String?
-  address_2    String?
-  city         String?
+  /// 주소 고유 ID (prefix: caaddr_)
+  id String @id
+
+  /// 연결된 고객 ID. Remote Link → Customer 모듈. null 허용
+  customer_id String?
+
+  /// 배송 수신처 회사명. null 허용
+  company String?
+
+  /// 수신자 이름. null 허용
+  first_name String?
+
+  /// 수신자 성. null 허용
+  last_name String?
+
+  /// 도로명 주소 1행. null 허용
+  address_1 String?
+
+  /// 도로명 주소 2행 (건물명·호수 등). null 허용
+  address_2 String?
+
+  /// 도시명. null 허용
+  city String?
+
+  /// ISO 3166-1 alpha-2 국가 코드. null 허용. 예: "kr", "us"
   country_code String?
-  province     String?
-  postal_code  String?
-  phone        String?
-  metadata     Json?
-  created_at   DateTime  @default(now())
-  updated_at   DateTime  @updatedAt
-  deleted_at   DateTime?
+
+  /// 주/도 코드. null 허용
+  province String?
+
+  /// 우편번호. null 허용
+  postal_code String?
+
+  /// 배송지 연락처. null 허용
+  phone String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
 
   shipping_carts CartCart[] @relation("CartShippingAddress")
   billing_carts  CartCart[] @relation("CartBillingAddress")
@@ -66,8 +131,9 @@ model CartAddress {
   @@map("cart_address")
 }
 
-// Cart 관계를 위한 내부 뷰 (CartAddress → Cart 역참조용)
-// Prisma에서 양방향 self-referential 해소를 위해 Cart 모델의 relation 이름과 맞춤
+// Prisma에서 CartAddress → Cart 역참조를 위한 내부 프록시 모델.
+// CartAddress가 Cart에 대한 역방향 관계(shipping_carts, billing_carts)를 선언하기 위해 필요.
+// 실제 DB 테이블은 Cart와 동일한 `cart` 테이블을 사용.
 model CartCart {
   id                  String       @id
   shipping_address_id String?
@@ -78,42 +144,113 @@ model CartCart {
   @@map("cart")
 }
 
+/// 카트 라인 아이템(CartLineItem). 카트에 담긴 상품 1개의 행.
+///
+/// 라이프사이클:
+///   - 고객이 상품을 카트에 담을 때 생성.
+///   - 상품 정보는 스냅샷으로 비정규화하여 저장 (product_title, variant_sku 등).
+///     주문 완료 후에도 카탈로그 변경의 영향을 받지 않기 위함.
+///   - Cart 삭제 시 cascade delete.
+///
+/// 금액 totals (computed — DB 컬럼 없음):
+///   original_total, total, subtotal, tax_total, discount_total 등 모든 합계 필드는 런타임 계산값.
+///
+/// 모듈 연결 (Remote Link, text 컬럼):
+///   - variant_id → Product 모듈 ProductVariant. 커스텀 상품은 null.
+///   - product_id, product_type_id → Product 모듈.
 model CartLineItem {
-  id                        String    @id
-  title                     String
-  subtitle                  String?
-  thumbnail                 String?
-  quantity                  Int
-  variant_id                String?
-  product_id                String?
-  product_title             String?
-  product_description       String?
-  product_subtitle          String?
-  product_type              String?
-  product_type_id           String?
-  product_collection        String?
-  product_handle            String?
-  variant_sku               String?
-  variant_barcode           String?
-  variant_title             String?
-  variant_option_values     Json?
-  requires_shipping         Boolean   @default(true)
-  is_discountable           Boolean   @default(true)
-  is_giftcard               Boolean   @default(false)
-  is_tax_inclusive          Boolean   @default(false)
-  is_custom_price           Boolean   @default(false)
-  compare_at_unit_price     Decimal?
+  /// 라인 아이템 고유 ID (prefix: cali_)
+  id String @id
+
+  /// 상품 표시 이름 (스냅샷)
+  title String
+
+  /// 상품 부제목 (스냅샷). null 허용
+  subtitle String?
+
+  /// 썸네일 이미지 URL (스냅샷). null 허용
+  thumbnail String?
+
+  /// 구매 수량
+  quantity Int
+
+  /// 상품 변형 ID. Remote Link → Product 모듈. 커스텀 상품은 null
+  variant_id String?
+
+  /// 상품 ID. Remote Link → Product 모듈. null 허용
+  product_id String?
+
+  /// 상품 이름 스냅샷. null 허용
+  product_title String?
+
+  /// 상품 설명 스냅샷. null 허용
+  product_description String?
+
+  /// 상품 부제목 스냅샷. null 허용
+  product_subtitle String?
+
+  /// 상품 유형명 스냅샷. null 허용
+  product_type String?
+
+  /// 상품 유형 ID 스냅샷. Remote Link → Product 모듈. null 허용
+  product_type_id String?
+
+  /// 상품 컬렉션명 스냅샷. null 허용
+  product_collection String?
+
+  /// 상품 URL 슬러그 스냅샷. null 허용
+  product_handle String?
+
+  /// 변형 SKU 스냅샷. null 허용
+  variant_sku String?
+
+  /// 변형 바코드 스냅샷. null 허용
+  variant_barcode String?
+
+  /// 변형 표시 이름 스냅샷. null 허용
+  variant_title String?
+
+  /// 변형 옵션 값 스냅샷. JSON 형태로 저장. null 허용
+  variant_option_values Json?
+
+  /// true이면 배송이 필요한 실물 상품
+  requires_shipping Boolean @default(true)
+
+  /// true이면 프로모션·할인 적용 가능
+  is_discountable Boolean @default(true)
+
+  /// true이면 기프트카드 상품
+  is_giftcard Boolean @default(false)
+
+  /// true이면 단가에 세금이 이미 포함된 상태
+  is_tax_inclusive Boolean @default(false)
+
+  /// true이면 관리자가 수동으로 지정한 단가
+  is_custom_price Boolean @default(false)
+
+  /// 정가(할인 전 표시 가격). null이면 할인 표시 없음
+  compare_at_unit_price Decimal?
+
+  /// compare_at_unit_price의 정밀도 보존용 원본 JSON
   raw_compare_at_unit_price Json?
-  unit_price                Decimal
-  raw_unit_price            Json
-  metadata                  Json?
-  created_at                DateTime  @default(now())
-  updated_at                DateTime  @updatedAt
-  deleted_at                DateTime?
+
+  /// 실제 판매 단가 (DB 컬럼 있음)
+  unit_price Decimal
+
+  /// unit_price의 정밀도 보존용 원본 JSON
+  raw_unit_price Json
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
 
   // computed totals (not stored): original_total, total, subtotal, tax_total,
   // discount_total, item_total 등 bigNumber computed 필드는 DB 컬럼 없음
 
+  /// 소속 카트 ID
   cart_id String
   cart    Cart   @relation(fields: [cart_id], references: [id])
 
@@ -127,20 +264,45 @@ model CartLineItem {
   @@map("cart_line_item")
 }
 
+/// 라인 아이템 할인 조정(CartLineItemAdjustment). 라인 아이템에 적용된 프로모션 할인 1건.
+///
+/// 라이프사이클:
+///   - 카트에 프로모션 코드 적용 시 생성. 한 라인 아이템에 복수 적용 가능.
+///   - promotion_id는 Remote Link → Promotion 모듈 (text 컬럼, FK 없음).
+///   - CHECK 제약: amount >= 0 (DB 마이그레이션에서 추가 필요).
 model CartLineItemAdjustment {
-  id               String    @id
-  description      String?
-  code             String?
-  amount           Decimal
-  raw_amount       Json
-  is_tax_inclusive Boolean   @default(false)
-  provider_id      String?
-  promotion_id     String?
-  metadata         Json?
-  created_at       DateTime  @default(now())
-  updated_at       DateTime  @updatedAt
-  deleted_at       DateTime?
+  /// 조정 고유 ID (prefix: caliadj_)
+  id String @id
 
+  /// 할인 설명. null 허용
+  description String?
+
+  /// 적용된 프로모션 코드. null 허용
+  code String?
+
+  /// 할인 금액 (양수)
+  amount Decimal
+
+  /// amount의 정밀도 보존용 원본 JSON
+  raw_amount Json
+
+  /// true이면 할인 금액에 세금이 포함된 상태
+  is_tax_inclusive Boolean @default(false)
+
+  /// 할인 공급자 ID. null 허용
+  provider_id String?
+
+  /// 적용된 프로모션 ID. Remote Link → Promotion 모듈. null 허용
+  promotion_id String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 라인 아이템 ID
   item_id String
   item    CartLineItem @relation(fields: [item_id], references: [id])
 
@@ -149,18 +311,38 @@ model CartLineItemAdjustment {
   @@map("cart_line_item_adjustment")
 }
 
+/// 라인 아이템 세금 라인(CartLineItemTaxLine). 라인 아이템에 적용된 세율 1건.
+///
+/// 라이프사이클:
+///   - Tax 모듈이 세율 계산 후 카트에 적용할 때 생성.
+///   - tax_rate_id는 Remote Link → Tax 모듈 TaxRate (text 컬럼, FK 없음).
 model CartLineItemTaxLine {
-  id          String    @id
-  description String?
-  code        String
-  rate        Float
-  provider_id String?
-  metadata    Json?
-  tax_rate_id String?
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
-  deleted_at  DateTime?
+  /// 세금 라인 고유 ID (prefix: calitxl_)
+  id String @id
 
+  /// 세금 설명. null 허용
+  description String?
+
+  /// 세금 식별 코드. 예: "VAT", "GST"
+  code String
+
+  /// 세율 값 (소수). 예: 0.1 = 10%
+  rate Float
+
+  /// 세금 계산 공급자 ID. null 허용
+  provider_id String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  /// 적용된 세율 ID. Remote Link → Tax 모듈. null 허용
+  tax_rate_id String?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 라인 아이템 ID
   item_id String
   item    CartLineItem @relation(fields: [item_id], references: [id])
 
@@ -169,23 +351,51 @@ model CartLineItemTaxLine {
   @@map("cart_line_item_tax_line")
 }
 
+/// 카트 배송 방법(CartShippingMethod). 고객이 선택한 배송 옵션 1건.
+///
+/// 라이프사이클:
+///   - 체크아웃 중 고객이 배송 방법을 선택할 때 생성.
+///   - shipping_option_id는 Remote Link → Fulfillment 모듈 ShippingOption.
+///   - CHECK 제약: amount >= 0 (DB 마이그레이션에서 추가 필요).
+///
+/// 금액 totals (computed — DB 컬럼 없음):
+///   original_total, total, subtotal, tax_total, discount_total 등 합계 필드는 런타임 계산값.
 model CartShippingMethod {
-  id                 String    @id
-  name               String
-  description        Json?
-  amount             Decimal
-  raw_amount         Json
-  is_tax_inclusive   Boolean   @default(false)
+  /// 배송 방법 고유 ID (prefix: casm_)
+  id String @id
+
+  /// 배송 방법 표시 이름. 예: "Standard Shipping", "Express"
+  name String
+
+  /// 배송 방법 설명. JSON 형식으로 저장 (다국어 지원 등). null 허용
+  description Json?
+
+  /// 배송비 (양수)
+  amount Decimal
+
+  /// amount의 정밀도 보존용 원본 JSON
+  raw_amount Json
+
+  /// true이면 배송비에 세금이 이미 포함된 상태
+  is_tax_inclusive Boolean @default(false)
+
+  /// 선택된 배송 옵션 ID. Remote Link → Fulfillment 모듈. null 허용
   shipping_option_id String?
-  data               Json?
-  metadata           Json?
-  created_at         DateTime  @default(now())
-  updated_at         DateTime  @updatedAt
-  deleted_at         DateTime?
+
+  /// 배송 공급자가 사용하는 부가 데이터 (예: 캐리어 코드). null 허용
+  data Json?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
 
   // computed totals (not stored): original_total, total, subtotal, tax_total,
   // discount_total 등 bigNumber computed 필드는 DB 컬럼 없음
 
+  /// 소속 카트 ID
   cart_id String
   cart    Cart   @relation(fields: [cart_id], references: [id])
 
@@ -197,18 +407,36 @@ model CartShippingMethod {
   @@map("cart_shipping_method")
 }
 
+/// 배송 방법 세금 라인(CartShippingMethodTaxLine). 배송비에 적용된 세율 1건.
+///
+/// CartLineItemTaxLine의 배송비 버전. 구조와 역할이 동일하다.
 model CartShippingMethodTaxLine {
-  id                 String    @id
-  description        String?
-  code               String
-  rate               Float
-  provider_id        String?
-  tax_rate_id        String?
-  metadata           Json?
-  created_at         DateTime  @default(now())
-  updated_at         DateTime  @updatedAt
-  deleted_at         DateTime?
+  /// 세금 라인 고유 ID (prefix: casmtxl_)
+  id String @id
 
+  /// 세금 설명. null 허용
+  description String?
+
+  /// 세금 식별 코드. 예: "VAT"
+  code String
+
+  /// 세율 값 (소수). 예: 0.1 = 10%
+  rate Float
+
+  /// 세금 계산 공급자 ID. null 허용
+  provider_id String?
+
+  /// 적용된 세율 ID. Remote Link → Tax 모듈. null 허용
+  tax_rate_id String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 배송 방법 ID
   shipping_method_id String
   shipping_method    CartShippingMethod @relation(fields: [shipping_method_id], references: [id])
 
@@ -217,19 +445,39 @@ model CartShippingMethodTaxLine {
   @@map("cart_shipping_method_tax_line")
 }
 
+/// 배송 방법 할인 조정(CartShippingMethodAdjustment). 배송비에 적용된 프로모션 할인 1건.
+///
+/// CartLineItemAdjustment의 배송비 버전. 구조와 역할이 동일하다.
 model CartShippingMethodAdjustment {
-  id               String    @id
-  description      String?
-  code             String?
-  amount           Decimal
-  raw_amount       Json
-  provider_id      String?
-  metadata         Json?
-  promotion_id     String?
-  created_at       DateTime  @default(now())
-  updated_at       DateTime  @updatedAt
-  deleted_at       DateTime?
+  /// 조정 고유 ID (prefix: casmadj_)
+  id String @id
 
+  /// 할인 설명. null 허용
+  description String?
+
+  /// 적용된 프로모션 코드. null 허용
+  code String?
+
+  /// 할인 금액 (양수)
+  amount Decimal
+
+  /// amount의 정밀도 보존용 원본 JSON
+  raw_amount Json
+
+  /// 할인 공급자 ID. null 허용
+  provider_id String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  /// 적용된 프로모션 ID. Remote Link → Promotion 모듈. null 허용
+  promotion_id String?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 배송 방법 ID
   shipping_method_id String
   shipping_method    CartShippingMethod @relation(fields: [shipping_method_id], references: [id])
 
@@ -238,17 +486,35 @@ model CartShippingMethodAdjustment {
   @@map("cart_shipping_method_adjustment")
 }
 
+/// 카트 크레딧 라인(CartCreditLine). 고객의 크레딧(포인트·기프트카드 잔액 등)을 카트에 적용한 레코드.
+///
+/// 라이프사이클:
+///   - 고객이 크레딧을 카트에 적용할 때 생성.
+///   - reference/reference_id로 크레딧 출처를 식별. 예: reference="gift_card", reference_id="gc_xxx".
 model CartCreditLine {
-  id           String    @id
-  reference    String?
-  reference_id String?
-  amount       Decimal
-  raw_amount   Json
-  metadata     Json?
-  created_at   DateTime  @default(now())
-  updated_at   DateTime  @updatedAt
-  deleted_at   DateTime?
+  /// 크레딧 라인 고유 ID (prefix: cacl_)
+  id String @id
 
+  /// 크레딧 출처 유형. 예: "gift_card". null 허용
+  reference String?
+
+  /// 크레딧 출처 엔티티 ID. null 허용
+  reference_id String?
+
+  /// 적용된 크레딧 금액
+  amount Decimal
+
+  /// amount의 정밀도 보존용 원본 JSON
+  raw_amount Json
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 카트 ID
   cart_id String
   cart    Cart   @relation(fields: [cart_id], references: [id])
 

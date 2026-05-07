@@ -4,14 +4,22 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
+/// 프로모션 유형
+/// - standard: 조건을 충족하는 카트/상품에 할인 적용.
+/// - buyget: Buy X Get Y. 일정 수량 구매 시 다른 수량을 무료로 증정.
 enum PromotionType {
   standard
   buyget
 }
 
+/// 프로모션 상태
+/// - draft: 초안. 카트 적용 불가.
+/// - active: 활성. 조건 충족 시 카트에 적용됨.
+/// - inactive: 비활성.
+/// - scheduled: 예약됨 (시작일 이전).
+/// - expired: 만료됨 (종료일 이후).
 enum PromotionStatus {
   draft
   active
@@ -20,49 +28,84 @@ enum PromotionStatus {
   expired
 }
 
+/// 할인 방식 유형
+/// - fixed: 고정 금액 할인.
+/// - percentage: 비율(%) 할인.
 enum ApplicationMethodType {
   fixed
   percentage
 }
 
+/// 할인 적용 대상
+/// - order: 주문 전체 금액에 적용.
+/// - items: 특정 라인 아이템(상품)에 적용.
+/// - shipping_methods: 배송비에 적용.
 enum ApplicationMethodTargetType {
   order
   items
   shipping_methods
 }
 
+/// 할인 분배 방식 (target_type = items 또는 shipping_methods일 때 유효)
+/// - each: 조건 충족 품목 각각에 독립적으로 할인 적용.
+/// - across: 조건 충족 품목 전체에 할인 금액을 분산 적용.
 enum ApplicationMethodAllocation {
   across
   each
 }
 
+/// 캠페인 예산 유형
+/// - spend: 총 할인 금액 기준 상한.
+/// - usage: 총 사용 횟수 기준 상한.
 enum CampaignBudgetType {
   spend
   usage
 }
 
+/// 프로모션 규칙 비교 연산자
+/// PromotionRule의 attribute와 values를 비교할 때 사용.
 enum PromotionRuleOperator {
-  gt
-  lt
-  eq
-  ne
-  lte
-  gte
-  in
-  nin
+  gt  /// 초과
+  lt  /// 미만
+  eq  /// 같음
+  ne  /// 다름
+  lte /// 이하
+  gte /// 이상
+  in  /// 목록에 있음
+  nin /// 목록에 없음
 }
 
+/// 마케팅 캠페인(Campaign). 여러 Promotion을 묶고 기간·예산을 공유 관리하는 단위.
+///
+/// 라이프사이클:
+///   - 어드민에서 생성. starts_at / ends_at으로 캠페인 유효 기간을 설정.
+///   - CampaignBudget을 추가하면 캠페인 전체의 할인 금액 또는 사용 횟수를 제한할 수 있다.
+///   - Promotion.campaign_id로 이 캠페인에 프로모션을 배속.
+///   - Campaign이 없는 독립 Promotion도 존재 가능.
 model Campaign {
-  id                  String    @id
-  name                String
-  description         String?
-  campaign_identifier String
-  starts_at           DateTime?
-  ends_at             DateTime?
-  created_at          DateTime  @default(now())
-  updated_at          DateTime  @updatedAt
-  deleted_at          DateTime?
+  /// 캠페인 고유 ID (prefix: procamp_)
+  id String @id
 
+  /// 캠페인 이름
+  name String
+
+  /// 캠페인 설명. null 허용
+  description String?
+
+  /// 코드 기반 식별자. 외부 시스템 연동에 사용. 전체에서 유일
+  campaign_identifier String
+
+  /// 캠페인 활성화 시작 시각. null이면 즉시 유효
+  starts_at DateTime?
+
+  /// 캠페인 만료 시각. null이면 종료일 없음
+  ends_at DateTime?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 1:1 예산 제한. null이면 예산 무제한
   budget     CampaignBudget?
   promotions Promotion[]
 
@@ -70,19 +113,46 @@ model Campaign {
   @@map("promotion_campaign")
 }
 
+/// 캠페인 예산(CampaignBudget). Campaign 전체의 할인 소진량을 제한·추적.
+///
+/// type에 따른 동작:
+///   - spend: limit까지 할인 금액 누계가 도달하면 더 이상 프로모션 적용 불가.
+///   - usage: limit까지 사용 횟수 누계가 도달하면 더 이상 프로모션 적용 불가.
+///
+/// 라이프사이클:
+///   - Campaign 생성 후 예산 한도가 필요한 경우에만 추가.
+///   - 프로모션 적용 시마다 used 값이 증가. limit에 도달하면 캠페인 잠금.
+///   - Campaign 삭제 시 함께 삭제.
 model CampaignBudget {
-  id            String             @id
-  type          CampaignBudgetType
-  currency_code String?
-  limit         Decimal?
-  raw_limit     Json?
-  used          Decimal            @default(0)
-  raw_used      Json?
-  attribute     String?
-  created_at    DateTime           @default(now())
-  updated_at    DateTime           @updatedAt
-  deleted_at    DateTime?
+  /// 예산 고유 ID (prefix: probudg_)
+  id String @id
 
+  /// 예산 유형. spend(금액 기준) 또는 usage(횟수 기준)
+  type CampaignBudgetType
+
+  /// 통화 코드. type=spend일 때 사용. null 허용
+  currency_code String?
+
+  /// 예산 상한 값. null이면 무제한
+  limit Decimal?
+
+  /// limit의 정밀도 보존용 원본 JSON
+  raw_limit Json?
+
+  /// 누적 소진 값 (금액 또는 횟수)
+  used Decimal @default(0)
+
+  /// used의 정밀도 보존용 원본 JSON
+  raw_used Json?
+
+  /// 개인별 소진량 추적 기준 속성명. 예: "customer_id", "customer_email". null이면 개인 추적 없음
+  attribute String?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 캠페인 ID (1:1)
   campaign_id String   @unique
   campaign    Campaign @relation(fields: [campaign_id], references: [id])
 
@@ -91,67 +161,149 @@ model CampaignBudget {
   @@map("promotion_campaign_budget")
 }
 
+/// 캠페인 예산 개인별 사용량(CampaignBudgetUsage). 고객별 할인 사용량을 추적하는 레코드.
+///
+/// 언제 생성되는가:
+///   - CampaignBudget.attribute가 설정된 경우(예: "customer_id"), 고객이 처음 해당 캠페인 할인을 사용할 때.
+///   - 이후 동일 고객의 추가 사용 시 used 값이 증가.
+///   - (attribute_value, budget_id) 조합 unique — 고객·예산 쌍당 1개의 사용량 행 유지.
 model CampaignBudgetUsage {
-  id              String    @id
-  attribute_value String
-  used            Decimal   @default(0)
-  raw_used        Json?
-  created_at      DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
-  deleted_at      DateTime?
+  /// 사용량 고유 ID (prefix: probudgus_)
+  id String @id
 
+  /// 개인 식별 값. attribute가 "customer_id"이면 cus_xxx, "customer_email"이면 이메일 주소
+  attribute_value String
+
+  /// 해당 개인의 누적 사용량 (금액 또는 횟수)
+  used Decimal @default(0)
+
+  /// used의 정밀도 보존용 원본 JSON
+  raw_used Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 캠페인 예산 ID
   budget_id String
   budget    CampaignBudget @relation(fields: [budget_id], references: [id])
 
+  /// (attribute_value, budget_id) 조합 unique — 개인·예산 쌍당 사용량 행 1개
   @@unique([attribute_value, budget_id], name: "IDX_campaign_budget_usage_attribute_budget")
   @@map("promotion_campaign_budget_usage")
 }
 
+/// 프로모션(Promotion). 할인 코드 또는 자동 할인 규칙 1개를 나타내는 레코드.
+///
+/// 라이프사이클:
+///   - 어드민에서 생성. status = draft로 시작.
+///   - is_automatic = true이면 코드 없이 카트에 자동 적용.
+///   - is_automatic = false이면 고객이 code를 카트에 입력해야 적용.
+///   - 적용 시마다 used 값이 증가. limit 도달 시 더 이상 적용 불가.
+///
+/// 관련 모듈:
+///   - Cart 모듈에서 프로모션 코드 적용 시 이 레코드를 참조.
+///   - Campaign (선택 배속, null 허용).
 model Promotion {
-  id               String          @id
-  code             String
-  is_automatic     Boolean         @default(false)
-  is_tax_inclusive Boolean         @default(false)
-  limit            Int?
-  used             Int             @default(0)
-  type             PromotionType
-  status           PromotionStatus @default(draft)
-  metadata         Json?
-  created_at       DateTime        @default(now())
-  updated_at       DateTime        @updatedAt
-  deleted_at       DateTime?
+  /// 프로모션 고유 ID (prefix: promo_)
+  id String @id
 
+  /// 할인 코드. 고객이 카트에 입력하는 값. 전체에서 유일
+  code String
+
+  /// true이면 코드 입력 없이 카트에 자동 적용
+  is_automatic Boolean @default(false)
+
+  /// true이면 할인 금액이 세금 포함 기준으로 계산
+  is_tax_inclusive Boolean @default(false)
+
+  /// 전체 사용 가능 횟수 상한. null이면 무제한
+  limit Int?
+
+  /// 누적 사용 횟수
+  used Int @default(0)
+
+  /// 프로모션 유형. standard(일반 할인) 또는 buyget(Buy X Get Y)
+  type PromotionType
+
+  /// 프로모션 상태
+  status PromotionStatus @default(draft)
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 캠페인 ID. null이면 독립 프로모션
   campaign_id String?
   campaign    Campaign? @relation(fields: [campaign_id], references: [id])
 
+  /// 할인 적용 방식 정의 (1:1, Promotion당 반드시 1개)
   application_method ApplicationMethod?
 
+  /// 이 프로모션이 적용되기 위한 조건 규칙 목록 (M2M)
   rules PromotionPromotionRule[]
 
   @@unique([code], name: "IDX_unique_promotion_code")
   @@index([is_automatic], name: "IDX_promotion_is_automatic")
 }
 
+/// 할인 적용 방식(ApplicationMethod). Promotion 1개당 1개 존재하며 할인 방법·대상·분배를 정의.
+///
+/// 필드 조합 의미:
+///   - type=fixed + target_type=order: 주문 전체에서 고정 금액 차감.
+///   - type=percentage + target_type=items + allocation=each: 조건 충족 각 상품에 비율 할인.
+///   - buyget 유형: apply_to_quantity(무료 증정 수량) + buy_rules_min_quantity(최소 구매 수량) 사용.
+///
+/// 모듈 연결 (모두 모듈 내부 관계):
+///   - target_rules: 할인 대상을 좁히는 조건 (예: 특정 카테고리 상품만).
+///   - buy_rules: buyget 유형에서 "구매" 조건 정의 (예: 특정 상품 X개 이상 구매).
 model ApplicationMethod {
-  id                   String                       @id
-  value                Decimal?
-  raw_value            Json?
-  currency_code        String?
-  max_quantity         Int?
-  apply_to_quantity    Int?
-  buy_rules_min_quantity Int?
-  type                 ApplicationMethodType
-  target_type          ApplicationMethodTargetType
-  allocation           ApplicationMethodAllocation?
-  created_at           DateTime                     @default(now())
-  updated_at           DateTime                     @updatedAt
-  deleted_at           DateTime?
+  /// 할인 적용 방식 고유 ID (prefix: proappmet_)
+  id String @id
 
+  /// 할인 값. type=fixed이면 금액, type=percentage이면 0–100 백분율. null 허용
+  value Decimal?
+
+  /// value의 정밀도 보존용 원본 JSON
+  raw_value Json?
+
+  /// 통화 코드. type=fixed일 때만 의미 있음. percentage이면 null
+  currency_code String?
+
+  /// 할인 적용 최대 수량. null이면 수량 제한 없음
+  max_quantity Int?
+
+  /// buyget 유형에서 무료 증정 수량. null 허용
+  apply_to_quantity Int?
+
+  /// buyget 유형에서 구매해야 하는 최소 수량. null 허용
+  buy_rules_min_quantity Int?
+
+  /// 할인 방식 유형 (fixed 또는 percentage)
+  type ApplicationMethodType
+
+  /// 할인 적용 대상 (order, items, shipping_methods)
+  target_type ApplicationMethodTargetType
+
+  /// 할인 분배 방식. target_type=order이면 null
+  allocation ApplicationMethodAllocation?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 프로모션 ID (1:1)
   promotion_id String    @unique
   promotion    Promotion @relation(fields: [promotion_id], references: [id])
 
+  /// 할인 대상을 좁히는 조건 규칙 목록 (M2M)
   target_rules ApplicationMethodTargetRule[]
-  buy_rules    ApplicationMethodBuyRule[]
+
+  /// buyget 유형의 구매 조건 규칙 목록 (M2M)
+  buy_rules ApplicationMethodBuyRule[]
 
   @@index([type], name: "IDX_application_method_type")
   @@index([target_type], name: "IDX_application_method_target_type")
@@ -159,20 +311,45 @@ model ApplicationMethod {
   @@map("promotion_application_method")
 }
 
+/// 프로모션 규칙(PromotionRule). 프로모션 또는 할인 대상에 붙는 조건 1개.
+///
+/// 구조: attribute (비교 대상) + operator (연산자) + values (비교 값 목록).
+/// 예: attribute="customer_group_id", operator=in, values=["cusgroup_vip", "cusgroup_wholesale"]
+///     → VIP 또는 도매 그룹 고객에게만 적용.
+///
+/// 재사용 가능한 공유 엔티티:
+///   - 동일한 PromotionRule이 여러 Promotion 또는 ApplicationMethod에 연결될 수 있다.
+///   - Promotion.rules: 이 프로모션이 적용되기 위한 조건 (카트 레벨 조건).
+///   - ApplicationMethod.target_rules: 할인 대상을 좁히는 조건 (상품 레벨 조건).
+///   - ApplicationMethod.buy_rules: buyget 구매 조건.
 model PromotionRule {
-  id          String                @id
-  description String?
-  attribute   String
-  operator    PromotionRuleOperator
-  created_at  DateTime              @default(now())
-  updated_at  DateTime              @updatedAt
-  deleted_at  DateTime?
+  /// 규칙 고유 ID (prefix: prorul_)
+  id String @id
 
+  /// 관리자용 규칙 설명. null 허용
+  description String?
+
+  /// 비교 대상 속성명. 예: "customer_group_id", "product_category_id", "currency_code"
+  attribute String
+
+  /// 비교 연산자
+  operator PromotionRuleOperator
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 비교 값 목록. operator=in이면 복수 값이 각각 1행씩 저장
   values PromotionRuleValue[]
 
-  promotions   PromotionPromotionRule[]
+  /// 이 규칙을 카트 조건으로 사용하는 프로모션 목록 (M2M)
+  promotions PromotionPromotionRule[]
+
+  /// 이 규칙을 할인 대상 조건으로 사용하는 ApplicationMethod 목록 (M2M)
   target_rules ApplicationMethodTargetRule[]
-  buy_rules    ApplicationMethodBuyRule[]
+
+  /// 이 규칙을 buyget 구매 조건으로 사용하는 ApplicationMethod 목록 (M2M)
+  buy_rules ApplicationMethodBuyRule[]
 
   @@index([attribute], name: "IDX_promotion_rule_attribute")
   @@index([operator], name: "IDX_promotion_rule_operator")
@@ -180,13 +357,23 @@ model PromotionRule {
   @@map("promotion_rule")
 }
 
+/// 프로모션 규칙 값(PromotionRuleValue). PromotionRule의 비교 대상 값 1개.
+///
+/// operator=in인 경우 복수의 값이 각각 별도 행으로 저장된다.
+/// 예: rule(attribute="customer_group_id", operator=in)에 대해
+///     value="cusgroup_vip", value="cusgroup_wholesale" 두 행.
 model PromotionRuleValue {
-  id         String    @id
-  value      String
+  /// 값 고유 ID (prefix: prorulval_)
+  id String @id
+
+  /// 비교 값. 의미는 attribute에 따라 다름. 예: "cusgroup_vip", "usd"
+  value String
+
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   deleted_at DateTime?
 
+  /// 소속 규칙 ID
   promotion_rule_id String
   promotion_rule    PromotionRule @relation(fields: [promotion_rule_id], references: [id])
 
@@ -195,7 +382,9 @@ model PromotionRuleValue {
   @@map("promotion_rule_value")
 }
 
-// pivot: promotion_promotion_rule
+/// 프로모션-규칙 연결(PromotionPromotionRule). Promotion ↔ PromotionRule 다대다 피벗 테이블.
+///
+/// 이 테이블의 규칙은 카트 레벨 조건. 예: "통화가 USD인 경우에만 이 프로모션 적용".
 model PromotionPromotionRule {
   promotion_id      String
   promotion_rule_id String
@@ -207,7 +396,9 @@ model PromotionPromotionRule {
   @@map("promotion_promotion_rule")
 }
 
-// pivot: application_method_target_rules
+/// 할인방식-대상규칙 연결(ApplicationMethodTargetRule). ApplicationMethod ↔ PromotionRule 다대다 피벗 테이블.
+///
+/// 이 테이블의 규칙은 할인 대상을 좁히는 조건. 예: "특정 카테고리 상품에만 할인 적용".
 model ApplicationMethodTargetRule {
   application_method_id String
   promotion_rule_id     String
@@ -219,7 +410,10 @@ model ApplicationMethodTargetRule {
   @@map("application_method_target_rules")
 }
 
-// pivot: application_method_buy_rules
+/// 할인방식-구매규칙 연결(ApplicationMethodBuyRule). ApplicationMethod ↔ PromotionRule 다대다 피벗 테이블.
+///
+/// buyget 유형에서만 사용. 이 테이블의 규칙은 "X를 구매"하는 조건을 정의.
+/// 예: "특정 상품을 2개 이상 구매해야 Y를 무료 증정".
 model ApplicationMethodBuyRule {
   application_method_id String
   promotion_rule_id     String

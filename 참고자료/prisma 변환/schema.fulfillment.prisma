@@ -4,9 +4,13 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
+/// 지리적 배송 가능 구역의 세분화 수준
+/// - country: 국가 단위. country_code만 사용.
+/// - province: 주/도 단위. province_code도 필요.
+/// - city: 도시 단위. city도 필요.
+/// - zip: 우편번호 단위. postal_expression으로 범위 표현.
 enum GeoZoneType {
   country
   province
@@ -14,23 +18,39 @@ enum GeoZoneType {
   zip
 }
 
+/// 배송 옵션 가격 계산 방식
+/// - flat: 고정 가격. ShippingOption 등록 시 price를 직접 지정.
+/// - calculated: 실시간 계산. 배송 공급자(provider)가 체크아웃 시 금액을 반환.
 enum ShippingOptionPriceType {
   flat
   calculated
 }
 
+/// 배송 옵션 규칙 비교 연산자
+/// ShippingOptionRule에서 attribute와 value를 비교할 때 사용.
 enum RuleOperator {
-  in
-  eq
-  lte
-  lt
-  gte
-  gt
-  nin
+  in  /// 목록에 있음
+  eq  /// 같음
+  lte /// 이하
+  lt  /// 미만
+  gte /// 이상
+  gt  /// 초과
+  nin /// 목록에 없음
 }
 
+/// 배송 공급자(FulfillmentProvider). 시스템에 등록된 물류·배송 서비스 공급자.
+///
+/// 라이프사이클:
+///   - 플러그인/설정으로 공급자를 등록할 때 자동 생성 또는 어드민에서 활성화.
+///   - is_enabled = false이면 해당 공급자로 배송 처리 불가.
+///   - ShippingOption과 1:N 관계 — 특정 공급자가 제공하는 배송 옵션 목록.
+///
+/// 참고: id는 자동 생성 UUID가 아닌 공급자 식별자 자체. 예: "manual", "fedex".
 model FulfillmentProvider {
-  id         String  @id
+  /// 공급자 식별자 (prefix 없는 고정 문자열). 예: "manual", "fedex_fedex"
+  id String @id
+
+  /// true이면 이 공급자로 배송 처리 가능. false이면 비활성화
   is_enabled Boolean @default(true)
 
   shipping_options ShippingOption[]
@@ -38,11 +58,25 @@ model FulfillmentProvider {
   @@map("fulfillment_provider")
 }
 
+/// 배송 프로파일(ShippingProfile). 상품 유형별 배송 정책을 묶는 프로파일.
+///
+/// 역할:
+///   - 물리 상품("default"), 기프트카드("gift_card"), 커스텀 유형("custom") 등으로 구분.
+///   - ShippingOption에서 참조 — 특정 프로파일의 상품에 어떤 배송 옵션을 제공할지 결정.
+///   - ProductVariant에 프로파일을 연결하면 카트 구성 시 사용 가능한 배송 옵션이 필터링됨.
 model ShippingProfile {
-  id         String    @id
-  name       String
-  type       String
-  metadata   Json?
+  /// 프로파일 고유 ID (prefix: sp_)
+  id String @id
+
+  /// 프로파일 표시 이름. 전체에서 유일. 예: "Default", "Gift Card"
+  name String
+
+  /// 프로파일 유형. 예: "default", "gift_card", "custom"
+  type String
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   deleted_at DateTime?
@@ -53,11 +87,28 @@ model ShippingProfile {
   @@map("shipping_profile")
 }
 
+/// 배송 설정 묶음(FulfillmentSet). 창고·판매 채널 단위로 배송 설정을 그룹화하는 최상위 컨테이너.
+///
+/// 라이프사이클:
+///   - 어드민에서 창고(StockLocation) 단위로 생성. Remote Link로 StockLocation과 연결.
+///   - 하위 ServiceZone을 통해 배송 가능 지역과 배송 옵션을 정의한다.
+///   - 삭제 시 service_zones cascade delete.
+///
+/// 모듈 연결 (Remote Link, 이 스키마에 FK 없음):
+///   - StockLocation ↔ FulfillmentSet (stock-location 모듈)
 model FulfillmentSet {
-  id         String    @id
-  name       String
-  type       String
-  metadata   Json?
+  /// 배송 설정 묶음 고유 ID (prefix: fuset_)
+  id String @id
+
+  /// 묶음 이름. 전체에서 유일. 예: "Seoul Warehouse Shipping"
+  name String
+
+  /// 유형 식별자. 예: "shipping". 자유 형식 텍스트
+  type String
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   deleted_at DateTime?
@@ -68,14 +119,28 @@ model FulfillmentSet {
   @@map("fulfillment_set")
 }
 
+/// 서비스 구역(ServiceZone). FulfillmentSet 하위의 지리적 배송 가능 구역 단위.
+///
+/// 라이프사이클:
+///   - FulfillmentSet 생성 후, 배송 가능한 지리적 영역별로 ServiceZone을 추가한다.
+///   - GeoZone을 통해 국가·주/도·도시·우편번호 범위를 지정한다.
+///   - ShippingOption을 통해 이 구역에서 제공하는 배송 방법을 등록한다.
+///   - 삭제 시 geo_zones, shipping_options cascade delete.
 model ServiceZone {
-  id         String    @id
-  name       String
-  metadata   Json?
+  /// 서비스 구역 고유 ID (prefix: serzo_)
+  id String @id
+
+  /// 구역 이름. 전체에서 유일. 예: "Korea Domestic", "US Continental"
+  name String
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   deleted_at DateTime?
 
+  /// 소속 배송 설정 묶음 ID
   fulfillment_set_id String
   fulfillment_set    FulfillmentSet @relation(fields: [fulfillment_set_id], references: [id])
 
@@ -86,18 +151,44 @@ model ServiceZone {
   @@map("service_zone")
 }
 
+/// 지리적 구역(GeoZone). ServiceZone이 커버하는 구체적인 지리 범위 1개.
+///
+/// type에 따른 사용 방식:
+///   - country: country_code만 지정. 해당 국가 전체에 적용.
+///   - province: country_code + province_code. 특정 주/도에 적용.
+///   - city: country_code + province_code + city. 특정 도시에 적용.
+///   - zip: country_code + postal_expression(JSON). 우편번호 범위에 적용.
+///
+/// 라이프사이클:
+///   - ServiceZone 생성 후, 배송 가능한 지리 범위를 정의하기 위해 추가.
+///   - 카트 체크아웃 시 배송지 주소와 GeoZone을 매칭하여 사용 가능한 ShippingOption을 필터링.
 model GeoZone {
-  id                String      @id
-  type              GeoZoneType @default(country)
-  country_code      String
-  province_code     String?
-  city              String?
-  postal_expression Json?
-  metadata          Json?
-  created_at        DateTime    @default(now())
-  updated_at        DateTime    @updatedAt
-  deleted_at        DateTime?
+  /// 지리 구역 고유 ID (prefix: fgz_)
+  id String @id
 
+  /// 구역 세분화 수준. 기본값 country
+  type GeoZoneType @default(country)
+
+  /// ISO 3166-1 alpha-2 국가 코드 (필수). 예: "KR", "US"
+  country_code String
+
+  /// ISO 3166-2 주/도 코드. type=province 이상일 때 사용. null 허용
+  province_code String?
+
+  /// 도시명. type=city 이상일 때 사용. null 허용
+  city String?
+
+  /// 우편번호 범위 표현식. type=zip일 때 사용. JSON 형식. null 허용
+  postal_expression Json?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 서비스 구역 ID
   service_zone_id String
   service_zone    ServiceZone @relation(fields: [service_zone_id], references: [id])
 
@@ -107,39 +198,78 @@ model GeoZone {
   @@map("geo_zone")
 }
 
+/// 배송 옵션 유형(ShippingOptionType). ShippingOption의 분류 레이블.
+///
+/// 역할:
+///   - 배송 방법의 카테고리를 정의. 예: "Standard Shipping", "Express Delivery".
+///   - label, description은 다국어 지원 대상.
+///   - ShippingOption 생성 시 반드시 1개 연결.
 model ShippingOptionType {
-  id          String    @id
-  label       String
+  /// 배송 옵션 유형 고유 ID (prefix: sotype_)
+  id String @id
+
+  /// 표시용 이름 (다국어). 예: "Standard Shipping", "빠른 배송"
+  label String
+
+  /// 유형 상세 설명 (다국어). null 허용
   description String?
-  code        String
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
-  deleted_at  DateTime?
+
+  /// 유형 코드 식별자. 예: "standard", "express"
+  code String
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
 
   shipping_options ShippingOption[]
 
   @@map("shipping_option_type")
 }
 
+/// 배송 옵션(ShippingOption). 특정 ServiceZone에서 제공하는 배송 방법 1개.
+///
+/// 라이프사이클:
+///   - 어드민에서 ServiceZone 하위에 생성.
+///   - 고객이 체크아웃 시 배송지와 ServiceZone/GeoZone을 매칭 → 적합한 ShippingOption 목록 반환.
+///   - 고객이 선택하면 Cart.ShippingMethod가 생성되고 이 ShippingOption을 참조.
+///   - 삭제 시 rules cascade delete.
+///
+/// 가격 방식:
+///   - price_type=flat: 고정 가격. 별도 Price 레코드(Pricing 모듈 Remote Link)로 금액 관리.
+///   - price_type=calculated: 체크아웃 시 provider가 실시간으로 금액을 계산해 반환.
 model ShippingOption {
-  id         String                  @id
-  name       String
+  /// 배송 옵션 고유 ID (prefix: so_)
+  id String @id
+
+  /// 배송 옵션 표시 이름. 예: "Standard (3-5 days)"
+  name String
+
+  /// 가격 계산 방식. flat(고정) 또는 calculated(실시간). 기본값 flat
   price_type ShippingOptionPriceType @default(flat)
-  data       Json?
-  metadata   Json?
-  created_at DateTime                @default(now())
-  updated_at DateTime                @updatedAt
+
+  /// 공급자가 사용하는 부가 데이터. 예: 캐리어 코드, 서비스 레벨. null 허용
+  data Json?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
   deleted_at DateTime?
 
+  /// 소속 서비스 구역 ID
   service_zone_id String
   service_zone    ServiceZone @relation(fields: [service_zone_id], references: [id])
 
+  /// 소속 배송 프로파일 ID. null이면 모든 상품 유형에 적용 가능
   shipping_profile_id String?
   shipping_profile    ShippingProfile? @relation(fields: [shipping_profile_id], references: [id])
 
+  /// 배송 공급자 ID. null이면 수동 처리
   provider_id String?
   provider    FulfillmentProvider? @relation(fields: [provider_id], references: [id])
 
+  /// 배송 옵션 유형 ID
   shipping_option_type_id String
   type                    ShippingOptionType @relation(fields: [shipping_option_type_id], references: [id])
 
@@ -149,66 +279,152 @@ model ShippingOption {
   @@map("shipping_option")
 }
 
+/// 배송 옵션 규칙(ShippingOptionRule). ShippingOption이 표시되기 위한 조건 1개.
+///
+/// 동작:
+///   - attribute + operator + value 조합으로 "이 배송 옵션은 어떤 조건에서 표시되는가"를 정의.
+///   - 예: attribute="customer.groups.id", operator=in, value=["cusgroup_vip"]
+///         → VIP 그룹 고객에게만 이 배송 옵션 표시.
+///   - 체크아웃 시 요청 컨텍스트와 모든 rules를 평가해 ShippingOption 목록을 필터링.
 model ShippingOptionRule {
-  id         String       @id
-  attribute  String
-  operator   RuleOperator
-  value      Json?
-  created_at DateTime     @default(now())
-  updated_at DateTime     @updatedAt
+  /// 규칙 고유 ID (prefix: sorul_)
+  id String @id
+
+  /// 평가할 속성명. 예: "customer.groups.id", "cart.subtotal"
+  attribute String
+
+  /// 비교 연산자
+  operator RuleOperator
+
+  /// 비교 기준값. JSON 형식으로 단일값 또는 배열 저장 가능. null 허용
+  value Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
   deleted_at DateTime?
 
+  /// 소속 배송 옵션 ID
   shipping_option_id String
   shipping_option    ShippingOption @relation(fields: [shipping_option_id], references: [id])
 
   @@map("shipping_option_rule")
 }
 
+/// 출고 주소(FulfillmentAddress). Fulfillment의 배달 목적지 주소.
+///
+/// Fulfillment와 1:1 관계. Cart/Order의 주소 스냅샷을 복사하여 출고 시점 주소를 보존한다.
 model FulfillmentAddress {
-  id           String    @id
-  company      String?
-  first_name   String?
-  last_name    String?
-  address_1    String?
-  address_2    String?
-  city         String?
+  /// 주소 고유 ID
+  id String @id
+
+  /// 배송 수신처 회사명. null 허용
+  company String?
+
+  /// 수신자 이름. null 허용
+  first_name String?
+
+  /// 수신자 성. null 허용
+  last_name String?
+
+  /// 도로명 주소 1행. null 허용
+  address_1 String?
+
+  /// 도로명 주소 2행. null 허용
+  address_2 String?
+
+  /// 도시명. null 허용
+  city String?
+
+  /// ISO 3166-1 alpha-2 국가 코드. null 허용
   country_code String?
-  province     String?
-  postal_code  String?
-  phone        String?
-  metadata     Json?
-  created_at   DateTime  @default(now())
-  updated_at   DateTime  @updatedAt
-  deleted_at   DateTime?
+
+  /// 주/도 코드. null 허용
+  province String?
+
+  /// 우편번호. null 허용
+  postal_code String?
+
+  /// 배송지 연락처. null 허용
+  phone String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
 
   fulfillment Fulfillment?
 
   @@map("fulfillment_address")
 }
 
+/// 출고(Fulfillment). 주문에서 실제로 상품을 포장·발송·배달하는 물류 처리 1건.
+///
+/// 상태는 별도 status 컬럼 없이 타임스탬프 패턴으로 관리:
+///   - null packed_at: 포장 대기 중.
+///   - packed_at 기록: 포장 완료.
+///   - shipped_at 기록: 발송 완료 (marked_shipped_by에 처리자 기록).
+///   - delivered_at 기록: 배달 완료.
+///   - canceled_at 기록: 출고 취소.
+///
+/// 라이프사이클:
+///   - 주문 처리 워크플로우에서 생성.
+///   - FulfillmentItem을 통해 어떤 상품이 얼마나 포함됐는지 기록.
+///   - FulfillmentLabel을 통해 운송장 정보를 관리.
+///   - location_id는 Remote Link → StockLocation 모듈 (text 컬럼).
+///
+/// 모듈 연결 (Remote Link):
+///   - StockLocation (location_id, text 컬럼)
+///   - Order.LineItem (FulfillmentItem.line_item_id, text 컬럼)
 model Fulfillment {
-  id                String    @id
-  location_id       String
-  packed_at         DateTime?
-  shipped_at        DateTime?
-  marked_shipped_by String?
-  created_by        String?
-  delivered_at      DateTime?
-  canceled_at       DateTime?
-  data              Json?
-  requires_shipping Boolean   @default(true)
-  metadata          Json?
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @updatedAt
-  deleted_at        DateTime?
+  /// 출고 고유 ID (prefix: ful_)
+  id String @id
 
+  /// 출고할 창고 ID. Remote Link → StockLocation 모듈 (FK 없는 text 참조)
+  location_id String
+
+  /// 포장 완료 시각. null이면 포장 대기 중
+  packed_at DateTime?
+
+  /// 발송 완료 시각. null이면 발송 전
+  shipped_at DateTime?
+
+  /// 발송 처리한 사용자 ID. null이면 자동 처리 또는 발송 전
+  marked_shipped_by String?
+
+  /// 출고를 생성한 사용자 ID. null 허용
+  created_by String?
+
+  /// 배달 완료 시각. null이면 배달 전
+  delivered_at DateTime?
+
+  /// 출고 취소 시각. null이면 취소 전
+  canceled_at DateTime?
+
+  /// 배송 공급자가 저장하는 외부 시스템 데이터. null 허용
+  data Json?
+
+  /// true이면 물리적 배송이 필요한 출고. false이면 디지털 상품 등
+  requires_shipping Boolean @default(true)
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 사용된 배송 옵션 ID. null이면 옵션 없이 수동 처리
   shipping_option_id String?
   shipping_option    ShippingOption? @relation(fields: [shipping_option_id], references: [id])
 
+  /// 배송 공급자 ID. null이면 수동 처리
   provider_id String?
   provider    FulfillmentProvider? @relation(fields: [provider_id], references: [id])
 
-  delivery_address_id String?       @unique
+  /// 배달 목적지 주소 ID (1:1)
+  delivery_address_id String?            @unique
   delivery_address    FulfillmentAddress? @relation(fields: [delivery_address_id], references: [id])
 
   items  FulfillmentItem[]
@@ -218,19 +434,43 @@ model Fulfillment {
   @@map("fulfillment")
 }
 
+/// 출고 항목(FulfillmentItem). Fulfillment에 포함된 상품 1개의 레코드.
+///
+/// 라이프사이클:
+///   - Fulfillment 생성 시 함께 생성.
+///   - title, sku, barcode는 출고 시점의 스냅샷으로 저장.
+///   - line_item_id는 Remote Link → Order 모듈 OrderLineItem.
+///   - inventory_item_id는 Remote Link → Inventory 모듈 InventoryItem.
 model FulfillmentItem {
-  id                String    @id
-  title             String
-  sku               String
-  barcode           String
-  quantity          Decimal
-  raw_quantity      Json
-  line_item_id      String?
-  inventory_item_id String?
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @updatedAt
-  deleted_at        DateTime?
+  /// 출고 항목 고유 ID
+  id String @id
 
+  /// 상품 이름 스냅샷 (출고 시점)
+  title String
+
+  /// SKU 스냅샷 (출고 시점)
+  sku String
+
+  /// 바코드 스냅샷 (출고 시점)
+  barcode String
+
+  /// 출고된 수량
+  quantity Decimal
+
+  /// quantity의 정밀도 보존용 원본 JSON
+  raw_quantity Json
+
+  /// 연결된 주문 라인 아이템 ID. Remote Link → Order 모듈. null 허용
+  line_item_id String?
+
+  /// 연결된 재고 항목 ID. Remote Link → Inventory 모듈. null 허용
+  inventory_item_id String?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 출고 ID
   fulfillment_id String
   fulfillment    Fulfillment @relation(fields: [fulfillment_id], references: [id])
 
@@ -239,15 +479,29 @@ model FulfillmentItem {
   @@map("fulfillment_item")
 }
 
+/// 출고 라벨(FulfillmentLabel). 배송 라벨 및 운송장 정보.
+///
+/// 라이프사이클:
+///   - Fulfillment 발송 처리 시 배송 공급자에서 발급받은 운송장 정보를 기록.
+///   - 하나의 Fulfillment에 여러 라벨(박스 수 등)이 가능.
 model FulfillmentLabel {
-  id             String    @id
-  tracking_number String
-  tracking_url   String
-  label_url      String
-  created_at     DateTime  @default(now())
-  updated_at     DateTime  @updatedAt
-  deleted_at     DateTime?
+  /// 라벨 고유 ID
+  id String @id
 
+  /// 운송장 번호 (조회용)
+  tracking_number String
+
+  /// 배송 추적 URL
+  tracking_url String
+
+  /// 인쇄용 라벨 파일 URL
+  label_url String
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 출고 ID
   fulfillment_id String
   fulfillment    Fulfillment @relation(fields: [fulfillment_id], references: [id])
 

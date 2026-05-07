@@ -4,76 +4,188 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
+/// 재고 항목(InventoryItem). 재고 추적의 기본 단위. 물리적 물품의 속성과 재고 레벨을 관리한다.
+///
+/// 라이프사이클:
+///   - ProductVariant 생성 시 자동으로 InventoryItem이 함께 생성된다 (manage_inventory = true인 경우).
+///   - 창고별 재고 등록 시 InventoryLevel 레코드가 추가된다.
+///   - 주문 생성 시 ReservationItem이 생성되어 해당 수량을 잠근다.
+///   - 출고(Fulfillment) 완료 시 ReservationItem이 삭제되고 stocked_quantity가 차감된다.
+///
+/// 수량 계산:
+///   - 가용 수량(available) = stocked_quantity - reserved_quantity (InventoryLevel 수준에서 계산)
+///   - reserved_quantity (computed): 모든 ReservationItem.quantity의 합산 — DB 컬럼 없음
+///   - stocked_quantity (computed): 모든 InventoryLevel.stocked_quantity의 합산 — DB 컬럼 없음
+///
+/// 모듈 연결 (Remote Link, 이 스키마에 FK 없음):
+///   - ProductVariant ↔ InventoryItem (product_variant_inventory_item 링크 테이블)
 model InventoryItem {
-  id                String    @id
-  sku               String?
-  origin_country    String?
-  hs_code           String?
-  mid_code          String?
-  material          String?
-  weight            Int?
-  length            Int?
-  height            Int?
-  width             Int?
-  requires_shipping Boolean   @default(true)
-  description       String?
-  title             String?
-  thumbnail         String?
-  metadata          Json?
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @updatedAt
-  deleted_at        DateTime?
+  /// 재고 항목 고유 ID (prefix: iitem_)
+  id String @id
+
+  /// 재고 관리 코드(SKU). 중복 불가. null이면 SKU 미등록
+  sku String?
+
+  /// 원산지 국가 코드. null 허용
+  origin_country String?
+
+  /// 국제 통일 상품 분류 코드(HS Code). 세관 신고에 사용. null 허용
+  hs_code String?
+
+  /// 제조업체 식별 코드(MID Code). null 허용
+  mid_code String?
+
+  /// 소재/재질. null 허용
+  material String?
+
+  /// 무게. 단위는 애플리케이션 레이어에서 결정. null 허용
+  weight Int?
+
+  /// 길이. null 허용
+  length Int?
+
+  /// 높이. null 허용
+  height Int?
+
+  /// 너비. null 허용
+  width Int?
+
+  /// true이면 배송이 필요한 실물 상품. false이면 디지털 상품 등 배송 불필요 항목
+  requires_shipping Boolean @default(true)
+
+  /// 내부 설명. null 허용
+  description String?
+
+  /// 내부 제목. null 허용
+  title String?
+
+  /// 썸네일 이미지 URL. null 허용
+  thumbnail String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
 
   // computed 필드: reserved_quantity, stocked_quantity → DB 컬럼 없음
 
   location_levels   InventoryLevel[]
   reservation_items ReservationItem[]
 
+  /// sku는 중복 불가 (soft-delete 제외)
   @@unique([sku], name: "IDX_inventory_item_sku")
 }
 
+/// 재고 레벨(InventoryLevel). InventoryItem × 창고 위치의 재고 상태를 나타내는 교차 레코드.
+///
+/// 라이프사이클:
+///   - InventoryItem을 특정 창고에 등록할 때 생성된다.
+///   - 상품 입고 시 stocked_quantity 증가.
+///   - 주문 생성 시 reserved_quantity 증가 (ReservationItem 생성과 연동).
+///   - 출고 완료 시 reserved_quantity 감소 + stocked_quantity 차감.
+///
+/// 수량 관계:
+///   - available_quantity (computed) = stocked_quantity - reserved_quantity → DB 컬럼 없음
+///   - incoming_quantity: 발주 등으로 입고 예정인 수량 (참고용, 가용 수량 계산에 미포함)
+///
+/// 모듈 연결:
+///   - InventoryItem (N:1 @relation, 모듈 내부 FK)
+///   - StockLocation (Remote Link 없음, location_id를 text로만 저장)
 model InventoryLevel {
-  id                String    @id
-  location_id       String
-  stocked_quantity  Decimal   @default(0)
-  raw_stocked_quantity  Json?
-  reserved_quantity Decimal   @default(0)
+  /// 재고 레벨 고유 ID (prefix: ilev_)
+  id String @id
+
+  /// 재고가 위치한 창고 ID (StockLocation 모듈의 ID, 외래 키 없는 text 참조)
+  location_id String
+
+  /// 창고에 물리적으로 있는 총 수량
+  stocked_quantity Decimal @default(0)
+
+  /// stocked_quantity의 정밀도 보존용 원본 JSON
+  raw_stocked_quantity Json?
+
+  /// 주문·예약으로 묶인(선점된) 수량. stocked - reserved = available
+  reserved_quantity Decimal @default(0)
+
+  /// reserved_quantity의 정밀도 보존용 원본 JSON
   raw_reserved_quantity Json?
-  incoming_quantity Decimal   @default(0)
+
+  /// 입고 예정 수량 (발주 등). 참고용이며 가용 수량 계산에는 포함되지 않음
+  incoming_quantity Decimal @default(0)
+
+  /// incoming_quantity의 정밀도 보존용 원본 JSON
   raw_incoming_quantity Json?
-  metadata          Json?
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @updatedAt
-  deleted_at        DateTime?
 
-  // computed: available_quantity → DB 컬럼 없음
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
 
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  // computed: available_quantity = stocked_quantity - reserved_quantity → DB 컬럼 없음
+
+  /// 소속 재고 항목 ID
   inventory_item_id String
   inventory_item    InventoryItem @relation(fields: [inventory_item_id], references: [id])
 
+  /// (inventory_item_id, location_id) 조합은 유일해야 한다 — 품목당 창고 하나에 레벨 레코드 하나
   @@unique([inventory_item_id, location_id], name: "IDX_inventory_level_location_id_inventory_item_id")
   @@index([inventory_item_id], name: "IDX_inventory_level_inventory_item_id")
   @@index([location_id], name: "IDX_inventory_level_location_id")
 }
 
+/// 재고 예약(ReservationItem). 주문·카트 등에 의해 특정 창고의 재고를 선점한 레코드.
+///
+/// 라이프사이클:
+///   - 주문 생성 시 생성. 해당 수량을 잠궈 다른 주문이 같은 재고를 중복 사용하지 못하게 한다.
+///   - 출고(Fulfillment) 완료 시 삭제되고, InventoryLevel.stocked_quantity가 차감된다.
+///   - allow_backorder = true이면 재고 수량 초과 예약이 허용된다.
+///
+/// 모듈 연결:
+///   - InventoryItem (N:1 @relation, 모듈 내부 FK)
+///   - Order LineItem (Remote Link 없음, line_item_id를 text로만 저장)
+///   - StockLocation (Remote Link 없음, location_id를 text로만 저장)
 model ReservationItem {
-  id             String    @id
-  line_item_id   String?
-  allow_backorder Boolean  @default(false)
-  location_id    String
-  quantity       Decimal
-  raw_quantity   Json
-  external_id    String?
-  description    String?
-  created_by     String?
-  metadata       Json?
-  created_at     DateTime  @default(now())
-  updated_at     DateTime  @updatedAt
-  deleted_at     DateTime?
+  /// 재고 예약 고유 ID (prefix: resitem_)
+  id String @id
 
+  /// 연결된 주문 라인 아이템 ID (Order 모듈의 ID, 외래 키 없는 text 참조). null 허용
+  line_item_id String?
+
+  /// true이면 재고 수량 초과 예약 허용 (백오더). false이면 재고 부족 시 예약 차단
+  allow_backorder Boolean @default(false)
+
+  /// 재고를 예약할 창고 ID (StockLocation 모듈의 ID, 외래 키 없는 text 참조)
+  location_id String
+
+  /// 예약 수량
+  quantity Decimal
+
+  /// quantity의 정밀도 보존용 원본 JSON (bigNumber 저장 방식)
+  raw_quantity Json
+
+  /// 외부 시스템 연동용 ID. null 허용
+  external_id String?
+
+  /// 예약 사유/설명. null 허용
+  description String?
+
+  /// 예약을 생성한 사용자 또는 시스템 식별자. null 허용
+  created_by String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 예약 대상 재고 항목 ID
   inventory_item_id String
   inventory_item    InventoryItem @relation(fields: [inventory_item_id], references: [id])
 

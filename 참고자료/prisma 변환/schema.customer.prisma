@@ -4,62 +4,150 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
+/// 고객(Customer). 스토어에 가입하거나 게스트로 주문한 사람을 나타내는 레코드.
+///
+/// 게스트 vs 계정 고객:
+///   - has_account = false: 게스트 고객. 이름·이메일이 null일 수 있다.
+///   - has_account = true: 계정을 보유한 고객. 이메일 필수, (email, has_account) 조합 unique.
+///   - 동일 이메일로 게스트 고객은 여러 명 존재 가능하고, 계정 고객은 1명만 허용.
+///
+/// 라이프사이클:
+///   - 회원가입 시 또는 게스트 주문 시 생성.
+///   - CustomerGroup에 배정하여 프로모션·가격 조건에서 세분화 적용 가능.
+///   - Cart/Order는 Remote Link로 연결 (이 스키마에 FK 없음).
+///
+/// 모듈 연결 (Remote Link, 이 스키마에 FK 없음):
+///   - Cart.customer_id, Order.customer_id (cross-module 참조)
 model Customer {
-  id           String    @id
+  /// 고객 고유 ID (prefix: cus_)
+  id String @id
+
+  /// 기업 고객명. 개인 고객은 null
   company_name String?
-  first_name   String?
-  last_name    String?
-  email        String?
-  phone        String?
-  has_account  Boolean   @default(false)
-  metadata     Json?
-  created_by   String?
-  created_at   DateTime  @default(now())
-  updated_at   DateTime  @updatedAt
-  deleted_at   DateTime?
+
+  /// 이름. 게스트 생성 시 null 가능
+  first_name String?
+
+  /// 성. 게스트 생성 시 null 가능
+  last_name String?
+
+  /// 이메일. 계정 고객(has_account=true)에서만 unique 강제됨. 게스트는 중복 가능
+  email String?
+
+  /// 전화번호. null 허용
+  phone String?
+
+  /// true이면 계정 보유 고객. false이면 게스트 고객
+  has_account Boolean @default(false)
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  /// 관리자가 대신 생성한 경우 관리자 ID. 직접 가입한 경우 null
+  created_by String?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
 
   addresses CustomerAddress[]
   groups    CustomerGroupCustomer[]
 
+  /// (email, has_account) partial unique — has_account=true인 행에서만 email 중복 불가
+  /// 완전한 partial unique 강제는 마이그레이션 SQL에서 추가 필요
   @@unique([email, has_account], name: "IDX_customer_email_has_account")
 }
 
+/// 고객 주소(CustomerAddress). 고객이 저장한 배송지·청구지 목록.
+///
+/// 라이프사이클:
+///   - 고객이 주소를 저장할 때 생성. Customer 삭제 시 함께 삭제.
+///   - is_default_shipping / is_default_billing 플래그로 기본 주소를 지정한다.
+///   - 기본 배송지와 기본 청구지는 각각 고객당 1개만 허용 (partial unique, 마이그레이션 SQL에서 추가 필요).
 model CustomerAddress {
-  id                  String    @id
-  address_name        String?
-  is_default_shipping Boolean   @default(false)
-  is_default_billing  Boolean   @default(false)
-  company             String?
-  first_name          String?
-  last_name           String?
-  address_1           String?
-  address_2           String?
-  city                String?
-  country_code        String?
-  province            String?
-  postal_code         String?
-  phone               String?
-  metadata            Json?
-  created_at          DateTime  @default(now())
-  updated_at          DateTime  @updatedAt
-  deleted_at          DateTime?
+  /// 주소 고유 ID (prefix: cuaddr_)
+  id String @id
 
+  /// 사용자 지정 주소 별칭. 예: "집", "회사". null 허용
+  address_name String?
+
+  /// true이면 이 주소가 기본 배송지. 고객당 1개만 허용
+  is_default_shipping Boolean @default(false)
+
+  /// true이면 이 주소가 기본 청구지. 고객당 1개만 허용
+  is_default_billing Boolean @default(false)
+
+  /// 배송 수신처 회사명. null 허용
+  company String?
+
+  /// 수신자 이름. null 허용
+  first_name String?
+
+  /// 수신자 성. null 허용
+  last_name String?
+
+  /// 도로명 주소 1행. null 허용
+  address_1 String?
+
+  /// 도로명 주소 2행 (건물명·호수 등). null 허용
+  address_2 String?
+
+  /// 도시명. null 허용
+  city String?
+
+  /// ISO 3166-1 alpha-2 국가 코드. null 허용. 예: "kr", "us"
+  country_code String?
+
+  /// 주/도 코드. null 허용. 예: "KR-11"(서울)
+  province String?
+
+  /// 우편번호. null 허용
+  postal_code String?
+
+  /// 배송지 연락처. 고객 기본 전화번호와 별도로 관리. null 허용
+  phone String?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  /// 소속 고객 ID
   customer_id String
   customer    Customer @relation(fields: [customer_id], references: [id])
 
-  // is_default_billing = true인 row는 customer_id당 1개 (partial unique index)
-  // is_default_shipping = true인 row는 customer_id당 1개 (partial unique index)
-  // Prisma는 WHERE 절 있는 partial unique index를 직접 지원하지 않으므로 DB 마이그레이션에서 추가 필요
+  // is_default_billing = true인 행은 customer_id당 1개 (partial unique index)
+  // is_default_shipping = true인 행은 customer_id당 1개 (partial unique index)
+  // Prisma는 WHERE 절 있는 partial unique index를 직접 지원하지 않으므로 마이그레이션 SQL에서 추가 필요
 }
 
+/// 고객 그룹(CustomerGroup). 고객을 세분화하는 레이블 단위.
+///
+/// 활용:
+///   - VIP, 도매, 임직원 등 고객 세그먼트를 정의.
+///   - PriceListRule.attribute="customer_group_id" 로 그룹별 가격 조건 적용.
+///   - PromotionRule.attribute="customer_group" 으로 그룹별 할인 조건 적용.
+///
+/// 라이프사이클:
+///   - 어드민에서 생성. CustomerGroupCustomer를 통해 고객을 배정.
+///   - 그룹 삭제 시 멤버십(CustomerGroupCustomer)은 제거되지만 고객 자체는 유지.
 model CustomerGroup {
-  id         String    @id
-  name       String
-  metadata   Json?
+  /// 고객 그룹 고유 ID (prefix: cusgroup_)
+  id String @id
+
+  /// 그룹명. 전체에서 유일. 예: "VIP", "Wholesale"
+  name String
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
+  /// 그룹을 생성한 관리자 ID. null 허용
   created_by String?
+
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   deleted_at DateTime?
@@ -69,18 +157,29 @@ model CustomerGroup {
   @@unique([name], name: "IDX_customer_group_name")
 }
 
-// M2M 명시적 pivot (추가 필드 포함)
+/// 고객-그룹 멤버십(CustomerGroupCustomer). Customer ↔ CustomerGroup 다대다 피벗 테이블.
+///
+/// 추가 필드(created_by, metadata)를 보유하는 명시적 피벗 모델.
+/// 그룹 멤버 추가 시 created_by에 처리한 관리자 ID를 기록할 수 있다.
 model CustomerGroupCustomer {
-  id         String    @id
+  /// 멤버십 고유 ID (prefix: cusgc_)
+  id String @id
+
+  /// 멤버십을 추가한 관리자 ID. null 허용
   created_by String?
-  metadata   Json?
+
+  /// 확장 가능한 키-값 커스텀 데이터
+  metadata Json?
+
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   deleted_at DateTime?
 
-  customer_id        String
-  customer_group_id  String
+  /// 소속 고객 ID
+  customer_id String
+  customer    Customer @relation(fields: [customer_id], references: [id])
 
-  customer       Customer      @relation(fields: [customer_id], references: [id])
-  customer_group CustomerGroup @relation(fields: [customer_group_id], references: [id])
+  /// 소속 그룹 ID
+  customer_group_id String
+  customer_group    CustomerGroup @relation(fields: [customer_group_id], references: [id])
 }

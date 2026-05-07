@@ -1,0 +1,17 @@
+digraph "sales-channel" {
+  graph [rankdir=LR splines=polyline nodesep=0.5 ranksep=1.2
+         pad=0.5 label="sales-channel" labelloc=t fontsize=16
+         fontname="Helvetica-Bold"]
+  node  [shape=none margin=0]
+  edge  [fontsize=7 fontname="Helvetica" arrowsize=0.75 dir=both]
+
+  SalesChannel [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+      <TR><TD BGCOLOR="#5D4037" ALIGN="CENTER" COLSPAN="2" CELLPADDING="4"><FONT COLOR="white" POINT-SIZE="9"><B>SalesChannel</B></FONT></TD></TR>
+      <TR><TD BGCOLOR="#EFEBE9" WIDTH="24" ALIGN="CENTER" CELLPADDING="2"><FONT COLOR="#0D2D6B" POINT-SIZE="5.5"><B>PK</B></FONT></TD><TD BGCOLOR="#EFEBE9" ALIGN="LEFT" CELLPADDING="2"><FONT COLOR="#0D2D6B" POINT-SIZE="7"><B>id: String</B></FONT></TD></TR>
+      <TR><TD BGCOLOR="#EFEBE9" WIDTH="24" CELLPADDING="2">&nbsp;</TD><TD BGCOLOR="#EFEBE9" ALIGN="LEFT" CELLPADDING="2"><FONT COLOR="#333333" POINT-SIZE="7">name: String</FONT></TD></TR>
+      <TR><TD BGCOLOR="#EFEBE9" WIDTH="24" CELLPADDING="2">&nbsp;</TD><TD BGCOLOR="#EFEBE9" ALIGN="LEFT" CELLPADDING="2"><FONT COLOR="#333333" POINT-SIZE="7">description: String?</FONT></TD></TR>
+      <TR><TD BGCOLOR="#EFEBE9" WIDTH="24" CELLPADDING="2">&nbsp;</TD><TD BGCOLOR="#EFEBE9" ALIGN="LEFT" CELLPADDING="2"><FONT COLOR="#333333" POINT-SIZE="7">is_disabled: Boolean</FONT></TD></TR>
+    </TABLE>>]
+
+  // Relations
+}
