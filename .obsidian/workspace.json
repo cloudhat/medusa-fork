@@ -8,61 +8,20 @@
         "type": "tabs",
         "children": [
           {
-            "id": "5bf46bd8c28a9a8f",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "참고자료/상세/정산-과세-구조.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "정산-과세-구조"
-            }
-          },
-          {
-            "id": "d508f43f1212c099",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "참고자료/상세/정산-과세-구조.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "정산-과세-구조"
-            }
-          },
-          {
             "id": "502ffa97c8f3f6ea",
             "type": "leaf",
             "state": {
-              "type": "pdf",
-              "state": {
-                "file": "참고자료/스키마/erd.pdf"
-              },
-              "icon": "lucide-file-text",
-              "title": "erd"
-            }
-          },
-          {
-            "id": "6efcbe95193afd54",
-            "type": "leaf",
-            "state": {
               "type": "markdown",
               "state": {
-                "file": "참고자료/상세/정산-과세-구조.md",
+                "file": "참고자료/사용자 여정 분석/05-프로모션-적용/README.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "정산-과세-구조"
+              "title": "README"
             }
           }
-        ],
-        "currentTab": 2
+        ]
       }
     ],
     "direction": "vertical"
@@ -135,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "참고자료/스키마/erd.pdf",
+                "file": "참고자료/사용자 여정 분석/05-프로모션-적용/README.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -145,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "erd 의 백링크"
+              "title": "README 의 백링크"
             }
           },
           {
@@ -154,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "참고자료/스키마/erd.pdf",
+                "file": "참고자료/사용자 여정 분석/05-프로모션-적용/README.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "erd 의 나가는 링크"
+              "title": "README 의 나가는 링크"
             }
           },
           {
@@ -197,13 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "참고자료/스키마/erd.pdf",
+                "file": "참고자료/사용자 여정 분석/05-프로모션-적용/README.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "erd 의 개요"
+              "title": "README 의 개요"
             }
           }
         ]
@@ -224,24 +183,53 @@
       "bases:새 베이스 생성하기": false
     }
   },
-  "active": "502ffa97c8f3f6ea",
+  "active": "0f48595f16fe52ed",
   "lastOpenFiles": [
+    "참고자료/사용자 여정 분석/11-반품-부분환불/README.md",
+    "참고자료/사용자 여정 분석/10-배송완료/README.md",
+    "참고자료/사용자 여정 분석/09-풀필먼트-배송처리/README.md",
+    "참고자료/사용자 여정 분석/08-주문생성-체크아웃완료/README.md",
+    "참고자료/사용자 여정 분석/07-결제세션-생성/README.md",
+    "참고자료/사용자 여정 분석/01-상품탐색/README.md",
+    "참고자료/사용자 여정 분석/06-세금계산/README.md",
+    "참고자료/사용자 여정 분석/05-프로모션-적용/README.md",
+    "참고자료/사용자 여정 분석/04-배송옵션-선택/README.md",
+    "참고자료/사용자 여정 분석/03-고객식별-주소입력/README.md",
+    "참고자료/사용자 여정 분석/02-장바구니-생성-아이템추가/README.md",
+    "참고자료/스키마 이해(deprecated)/erd.pdf",
+    "참고자료/사용자 여정 분석/README.md",
+    "참고자료/사용자 여정 분석/11-반품-부분환불",
+    "참고자료/사용자 여정 분석/10-배송완료",
+    "참고자료/사용자 여정 분석/09-풀필먼트-배송처리",
+    "참고자료/사용자 여정 분석/08-주문생성-체크아웃완료",
+    "참고자료/사용자 여정 분석/07-결제세션-생성",
+    "참고자료/사용자 여정 분석/06-세금계산",
+    "참고자료/사용자 여정 분석/05-프로모션-적용",
+    "참고자료/사용자 여정 분석/04-배송옵션-선택",
+    "참고자료/사용자 여정 분석/03-고객식별-주소입력",
     "참고자료/상세/정산-과세-구조.md",
-    "참고자료/상세/이벤트소싱-불변성.md",
-    "참고자료/스키마/README.md",
-    "참고자료/상세/배송비-그룹-조건부무료.md",
-    "참고자료/상세/할인-적용범위-계산.md",
-    "참고자료/상세/부분반품-환불-흐름.md",
-    "참고자료/스키마/erd.pdf",
-    "참고자료/개요/결제-스키마.md",
-    "참고자료/스키마/erd_source.dot",
-    "참고자료/개요/배송-스키마.md",
-    "참고자료/개요/주문-스키마.md",
-    "참고자료/스키마/gen_erd.py",
-    "참고자료/스키마/프로모션-할인.prisma",
-    "참고자료/스키마/주문.prisma",
-    "참고자료/스키마/배송.prisma",
-    "참고자료/스키마/결제.prisma",
-    "참고자료/스키마"
+    "참고자료/스키마 이해(deprecated)/README.md",
+    "참고자료/README.md",
+    "node_modules/use-sync-external-store/README.md",
+    "node_modules/@storybook/react-dom-shim/README.md",
+    "node_modules/@storybook/icons/dist/public/cover.jpg",
+    "node_modules/@storybook/icons/dist/public/logo.png",
+    "node_modules/@storybook/icons/LICENSE.md",
+    "node_modules/@storybook/icons/README.md",
+    "node_modules/string-width/readme.md",
+    "node_modules/wrap-ansi-cjs/node_modules/wrap-ansi/readme.md",
+    "node_modules/wrap-ansi-cjs/readme.md",
+    "node_modules/strip-ansi/readme.md",
+    "node_modules/@vitest/pretty-format/node_modules/tinyrainbow/README.md",
+    "node_modules/@vitest/utils/node_modules/tinyrainbow/README.md",
+    "node_modules/tsup/node_modules/readdirp/README.md",
+    "node_modules/retry/equation.gif",
+    "node_modules/browserify-zlib/test/fixtures/person.jpg",
+    "node_modules/pino/pretty-demo.png",
+    "node_modules/pino/pino-tree.png",
+    "node_modules/pino/pino-logo-hire.png",
+    "node_modules/pino/pino-banner.png",
+    "node_modules/pino/favicon-32x32.png",
+    "node_modules/pino/favicon-16x16.png"
   ]
 }
