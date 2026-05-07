@@ -29,6 +29,8 @@ Medusa 기반 커머스의 구매 전 과정을 사용자 여정 단위로 분�
 | [09](./09-풀필먼트-배송처리/README.md) | 풀필먼트 생성·배송 처리 | `createOrderFulfillmentWorkflow`, `createOrderShipmentWorkflow` | Order, Fulfillment, Inventory, Locking |
 | [10](./10-배송완료/README.md) | 배송 완료 | `markOrderFulfillmentAsDeliveredWorkflow` | Order, Fulfillment, Locking |
 | [11](./11-반품-부분환불/README.md) | 반품 + 부분환불 | `confirmReturnRequestWorkflow`, `confirmReturnReceiveWorkflow`, `refundPaymentWorkflow` | Order, Payment, Fulfillment, Inventory |
+| [12](./12-주문편집/README.md) | 주문 편집 (Order Edit) | `beginOrderEditOrderWorkflow`, `orderEditAddNewItemWorkflow`, `confirmOrderEditRequestWorkflow` | Order, Promotion, Tax, Inventory, Payment, Locking |
+| [13](./13-교환/README.md) | 교환 (Exchange) | `beginExchangeOrderWorkflow`, `orderExchangeRequestItemReturnWorkflow`, `confirmExchangeRequestWorkflow` | Order, Promotion, Tax, Inventory, Fulfillment, Payment |
 
 ## 모듈 전체 관계도
 
